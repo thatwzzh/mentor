@@ -1,0 +1,20 @@
+{
+  "python_version": "3.13",
+  "source": {
+    "kind": "uv",
+    "root": "."
+  },
+  "graphs": {
+    "main_agent": "mentor.agents.main:agent_factory_with_trace",
+    "delete_old_trace": "mentor.crons.delete_old_trace:graph"
+  },
+  "env": ".env",
+  "auth": {
+    "path": "mentor.security.auth:auth",
+    "disable_studio_auth": true
+  },
+  "http": {
+    "app": "mentor.app.main:app",
+    "enable_custom_route_auth": false
+  }
+}

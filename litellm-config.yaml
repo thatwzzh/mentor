@@ -1,0 +1,3 @@
+router_settings:
+  optional_pre_call_checks:
+    - session_affinity

@@ -1,0 +1,210 @@
+name: mentor
+services:
+  langfuse-worker:
+    image: docker.langfuse.com/langfuse/langfuse-worker:4
+    restart: always
+    depends_on: &langfuse-depends-on
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+    environment: &langfuse-worker-env
+      NEXTAUTH_URL: http://localhost:3000
+      DATABASE_URL: postgresql://root:123456@langfuse-postgres:5432/postgres
+      SALT: "RVuAZ+bRLoevuDIkTEBVh4+1PwyqzMqdJX/JkpoakJc="
+      ENCRYPTION_KEY: "44ad9d6e24f2a9767db8e26b8de1234a0b755f3f22d4c67a5a5e139029a6cc17"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: root
+      CLICKHOUSE_PASSWORD: "123456"
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: root
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: "12345678"
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: root
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: "12345678"
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_BATCH_EXPORT_ENABLED: "true"
+      LANGFUSE_S3_BATCH_EXPORT_BUCKET: langfuse
+      LANGFUSE_S3_BATCH_EXPORT_REGION: auto
+      LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT: http://localhost:9000
+      LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: root
+      LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: "12345678"
+      LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: "true"
+      REDIS_HOST: langfuse-redis
+      REDIS_PORT: 6379
+      # Langfuse 事务邮件：成员邀请、密码重置、批量导出完成通知
+      SMTP_CONNECTION_URL: ${LANGFUSE_SMTP_CONNECTION_URL:-}
+      EMAIL_FROM_ADDRESS: ${LANGFUSE_EMAIL_FROM_ADDRESS:-}
+      # Langfuse Ask AI：复用项目现有的 OpenAI 兼容模型配置
+      LANGFUSE_AI_PROVIDER: openai
+      LANGFUSE_AI_MODEL: ${LANGFUSE_OPENAI_DEFAULT_MODEL:-}
+      LANGFUSE_AI_SMALL_MODEL: ${LANGFUSE_OPENAI_DEFAULT_MODEL:-}
+      LANGFUSE_AI_API_KEY: ${LANGFUSE_OPENAI_API_KEY:-}
+      LANGFUSE_AI_BASE_URL: ${LANGFUSE_OPENAI_BASE_URL:-}
+      LANGFUSE_WEBHOOK_WHITELISTED_HOST: ${LANGFUSE_WEBHOOK_WHITELISTED_HOST}
+
+  langfuse-web:
+    image: docker.langfuse.com/langfuse/langfuse:4
+    restart: always
+    depends_on: *langfuse-depends-on
+    ports:
+      - 3000:3000
+    environment:
+      <<: *langfuse-worker-env
+      NEXTAUTH_SECRET: "qdP9/aeqtuYFR45IiGxB/8SaGeqqCqYPaUUgemrbung="
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://langfuse-minio:9000
+
+  langfuse-clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:25.12
+    restart: always
+    # 使用Linux用户组101的用户101运行，这是clickhouse官方建议，其实删了也可以
+    # 有一些细节差异，不用管它，留着便是
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: root
+      CLICKHOUSE_PASSWORD: 123456
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+
+  langfuse-minio:
+    image: cgr.dev/chainguard/minio
+    restart: always
+    entrypoint: sh # 容器启动时通过 sh(shell) 执行 command 中配置的命令
+    # 容器启动时执行的命令
+    # mkdir -p /data/langfuse: 为 langfuse 创建存储桶
+    # minio server --address ":9000" --console-address ":9001" /data
+    # 启动 minio 服务，所有的存储桶位置：/data
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: root
+      MINIO_ROOT_PASSWORD: 12345678
+    ports: # 宿主端口映射
+      - 9000:9000
+      - 9001:9001
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+
+  langfuse-redis:
+    image: docker.io/redis:7
+    restart: always
+    volumes:
+      - langfuse_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+  # 专为 langfuse 使用的 postgres 数据库
+  langfuse-postgres:
+    image: docker.io/postgres:17
+    # 重启策略
+    # no: 不自动重启，默认值
+    # on-failure: 只有容器以非 0 状态码异常退出时才重启
+    # always: 不管正常退出还是异常退出，都会自动重启
+    # unless-stopped: 手动停止容器后，Docker服务重启仍然保持停止
+    restart: always
+    healthcheck: # 健康检查
+      # 运行命令，命令运行成功会将该容器标记为健康
+      test: ["CMD-SHELL", "pg_isready -U root -d postgres"]
+      interval: 3s # 每隔三秒钟运行一次
+      timeout: 3s # 最多等待命令执行3秒
+      retries: 10 # 超时或失败后重试的次数
+    environment: # 启动容器时向它注入环境变量
+      POSTGRES_USER: root # 账号
+      POSTGRES_PASSWORD: 123456 # 密码
+      POSTGRES_DB: postgres # 默认数据库
+      TZ: Asia/Shanghai # 容器操作系统时区
+      PGTZ: Asia/Shanghai # 客户端会话的时区
+    volumes:
+      # 数据保存到卷柜 langfuse_postgres_data（必须在volumes中有声明）
+      - langfuse_postgres_data:/var/lib/postgresql/data
+      
+  litellm:
+    image: litellm/litellm-database:v1.101.0
+    restart: always
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports:
+      - 4000:4000
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml:ro
+    environment:
+      LITELLM_MASTER_KEY: "sk-d09e0b617046b7d70e5b25ae2da70a5c1154ac2f4d89ad8a1a77447edb77e3b9"
+      LITELLM_SALT_KEY: "9374353240238ada8024ec6cc7d8599cb755ec837a60f7d3958c62be877a8032"
+      UI_USERNAME: admin
+      UI_PASSWORD: 123456
+      DATABASE_URL: postgresql://root:123456@litellm_postgres:5432/postgres
+      STORE_MODEL_IN_DB: "True"
+      STORE_PROMPTS_IN_SPEND_LOGS: "True"
+      REDIS_HOST: litellm_redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    depends_on:
+      litellm_postgres:
+        condition: service_healthy
+      litellm_redis:
+        condition: service_healthy
+
+  litellm_postgres:
+    image: docker.io/postgres:17
+    restart: always
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: postgres
+    volumes:
+      - litellm_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root -d postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  litellm_redis:
+    image: docker.io/redis:7
+    restart: always
+    volumes:
+      - litellm_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+volumes:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_minio_data:
+  langfuse_redis_data:
+  langfuse_postgres_data:
+  litellm_postgres_data:
+  litellm_redis_data:
+
+

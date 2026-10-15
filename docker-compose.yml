@@ -146,7 +146,7 @@ services:
     volumes:
       # 数据保存到卷柜 langfuse_postgres_data（必须在volumes中有声明）
       - langfuse_postgres_data:/var/lib/postgresql/data
-      
+
   litellm:
     image: litellm/litellm-database:v1.101.0
     restart: always
@@ -163,6 +163,8 @@ services:
       DATABASE_URL: postgresql://root:123456@litellm_postgres:5432/postgres
       STORE_MODEL_IN_DB: "True"
       STORE_PROMPTS_IN_SPEND_LOGS: "True"
+      LANGFUSE_TRACING_ENVIRONMENT: gateway
+      OTEL_ENVIRONMENT_NAME: gateway
       REDIS_HOST: litellm_redis
       REDIS_PORT: 6379
       REDIS_DB: 0
@@ -198,6 +200,28 @@ services:
       timeout: 10s
       retries: 10
 
+  nacos:
+    image: nacos/nacos-server:v3.2.4-slim
+    restart: always
+    environment:
+      MODE: standalone
+      FUNCTION_MODE: all
+      NACOS_AUTH_ENABLE: "true"
+      NACOS_AUTH_TOKEN: RiVYR9ZY5TKK7gg6089izg65CfwNN3v9h8zemw0OgvnRJsR2CINORJ5FTTpuOYrL
+      NACOS_AUTH_IDENTITY_KEY: serverIdentity
+      NACOS_AUTH_IDENTITY_VALUE: a820b4504731b71773ba2e711eb09496e8456ea4321c7856
+    ports:
+      - "127.0.0.1:8080:8080" # 控制台
+      - "127.0.0.1:8848:8848" # HTTP 客户端 API
+      - "127.0.0.1:9848:9848" # gRPC 客户端通信
+    volumes:
+      - type: volume
+        source: nacos_data
+        target: /home/nacos/data
+        volume:
+          nocopy: true
+      - nacos_logs:/home/nacos/logs
+
 volumes:
   langfuse_clickhouse_data:
   langfuse_clickhouse_logs:
@@ -206,5 +230,5 @@ volumes:
   langfuse_postgres_data:
   litellm_postgres_data:
   litellm_redis_data:
-
-
+  nacos_data:
+  nacos_logs:

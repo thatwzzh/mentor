@@ -41,6 +41,14 @@ make debug
   
   API 地址：http://localhost:4000/v1
 
+- **Nacos 管理后台**
+
+  访问地址：http://localhost:8080/
+  
+  账号：nacos
+  
+  密码：初始界面自行设定
+
 ### 不常用服务
 
 - MinIO 管理后台

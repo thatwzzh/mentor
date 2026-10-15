@@ -4,6 +4,7 @@ from langfuse.types import TraceContext
 from langgraph_sdk.runtime import ServerRuntime
 from langfuse import propagate_attributes
 from contextlib import asynccontextmanager
+from .shared import get_thread_id
 
 
 def trace_wrapper(agent_factory):
@@ -18,7 +19,7 @@ def trace_wrapper(agent_factory):
 
         trace_handler = CallbackHandler(trace_context=trace_context)
         agent = await agent_factory()
-        thread_id = config.get("configurable", {}).get("thread_id")
+        thread_id = get_thread_id()
         assert runtime.user is not None
         agent = agent.with_config(
             callbacks=[trace_handler],

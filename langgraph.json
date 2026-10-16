@@ -5,8 +5,7 @@
     "root": "."
   },
   "graphs": {
-    "main_agent": "mentor.agents.main:factory_with_trace",
-    "delete_old_trace": "mentor.crons.delete_old_trace:graph"
+    "main_agent": "mentor.agents.main:factory_with_trace"
   },
   "env": ".env",
   "auth": {

@@ -1,0 +1,45 @@
+[server]
+# Server 在容器内监听所有网络接口；宿主机仅通过 Compose 映射到 127.0.0.1。
+host = "0.0.0.0"
+# Server 的 HTTP API 端口，需与 Compose 的容器端口一致。
+port = 8090
+
+[proxy]
+# Server 与动态沙箱不在同一 Docker 网络时，通过宿主映射端口代理请求。
+resolve_internal = false
+
+[runtime]
+# 使用宿主 Docker daemon 创建和管理沙箱容器。
+type = "docker"
+# 创建沙箱时注入 execd，提供命令执行和文件操作能力。
+execd_image = "docker.io/opensandbox/execd:release-1.1.0"
+
+[docker]
+# 动态创建的沙箱容器连接到 Docker 默认 bridge 网络。
+network_mode = "bridge"
+# Server 访问沙箱映射端口时使用的宿主地址；适用于 Docker Desktop。
+host_ip = "host.docker.internal"
+# 动态沙箱可分配的宿主端口范围起点。
+port_range_min = 40000
+# 动态沙箱可分配的宿主端口范围终点。
+port_range_max = 60000
+# 从沙箱容器移除这些 Linux capabilities，缩小容器权限。
+drop_capabilities = ["AUDIT_WRITE", "MKNOD", "NET_ADMIN", "NET_RAW", "SYS_ADMIN", "SYS_MODULE", "SYS_PTRACE", "SYS_TIME", "SYS_TTY_CONFIG"]
+# 禁止沙箱内的进程通过提权机制获得新权限。
+no_new_privileges = true
+# 限制单个沙箱容器可创建的进程和线程总数。
+pids_limit = 4096
+
+[egress]
+# 创建请求启用网络策略时使用的出站流量代理镜像。
+image = "docker.io/opensandbox/egress:release-1.1.0"
+
+[store]
+# Server 管理的元数据使用 SQLite；沙箱持久化卷由创建请求单独指定。
+type = "sqlite"
+# SQLite 文件位于 Compose 挂载的 opensandbox_server_data 命名卷内。
+path = "/root/.opensandbox/opensandbox.db"
+
+[ingress]
+# 沙箱入口采用直接访问方式，不启用独立的入口网关。
+mode = "direct"

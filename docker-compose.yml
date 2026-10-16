@@ -221,6 +221,20 @@ services:
         volume:
           nocopy: true
       - nacos_logs:/home/nacos/logs
+  opensandbox-server:
+    image: docker.io/opensandbox/server:release-1.1.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8090:8090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      SANDBOX_CONFIG_PATH: /etc/opensandbox/config.toml
+      OPENSANDBOX_SERVER_API_KEY: ${OPEN_SANDBOX_API_KEY:?Set OPEN_SANDBOX_API_KEY in .env}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./opensandbox_config.toml:/etc/opensandbox/config.toml:ro
+      - opensandbox_server_data:/root/.opensandbox
 
 volumes:
   langfuse_clickhouse_data:
@@ -232,3 +246,5 @@ volumes:
   litellm_redis_data:
   nacos_data:
   nacos_logs:
+  opensandbox_server_data:
+

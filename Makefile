@@ -1,6 +1,6 @@
 DS ?= all
 
-.PHONY: docker-recreate build dev debug course course-push test-benchmark
+.PHONY: docker-recreate build dev debug course course-push test-benchmark test-units
 
 docker-recreate:
 	docker compose up -d --force-recreate
@@ -16,3 +16,6 @@ debug:
 
 test-benchmark:
 	BENCHMARK_DATASET="$(DS)" uv run pytest -q -s --tb=no tests/benchmarks/test_benchmark.py
+
+test-units:
+	uv run pytest -q tests/units

@@ -28,7 +28,8 @@ async def get_mcp_config(mcp_name: str) -> MCPServerConfig | None:
     backend = endpoints[0]
     url = f"{backend["protocol"]}://{backend["address"]}:{backend["port"]}{backend["path"]}"
 
-    tools_meta = response.get("toolSpec", {}).get("toolsMeta", {})
+    tool_spec = response.get("toolSpec") or {}
+    tools_meta = tool_spec.get("toolsMeta") or {}
     disabled_tools = [
         name for name, value in tools_meta.items() if not value.get("enabled", True)
     ]

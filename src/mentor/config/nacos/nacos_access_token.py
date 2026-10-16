@@ -1,7 +1,6 @@
 import time
 import asyncio
 import httpx
-from urllib3 import response
 from ..nacos_settings import nacos_settings
 
 _access_token: str | None = None  # 缓存的token
@@ -25,7 +24,7 @@ async def get_access_token() -> str:
             base_url=nacos_settings.server_address, timeout=10
         ) as client:
             response = await client.post(
-                "/nanos/v3/user/login",
+                "/nacos/v3/auth/user/login",
                 data={
                     "username": nacos_settings.username,
                     "password": nacos_settings.password,
@@ -33,7 +32,7 @@ async def get_access_token() -> str:
             )
             response.raise_for_status()
             login_result = response.json()
-        token = login_result["access_token"]
+        token = login_result["accessToken"]
         ttl = float(login_result["tokenTtl"])
         _access_token = token
         _expires_at = _start_at + ttl - 30  # 过期时间留点余量保证可用

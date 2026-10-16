@@ -1,24 +1,24 @@
 from langchain.chat_models import init_chat_model
-from mentor.config.openai_settings import openai_settings
-from .shared import get_thread_id
+from mentor.utils.shared import get_thread_id
+from mentor.config.nacos.nacos_schemas import AgentModelConfig
 
 
-def create_model(**kwargs):
-    kwargs.pop("model_provider", None)  # 删除 model_provider 字段
-    thinking = kwargs.get("thinking", True)
-    kwargs.pop("thinking", None)
-    kwargs.pop("extra_body", None)
+def create_model(model_config: AgentModelConfig | None = None):
+    if model_config is None:
+        model_config = AgentModelConfig()
     config = {
-        "model": openai_settings.default_model,
+        "model": model_config.name,
         "model_provider": "openai_reasoning",
-        "extra_body": {"enable_thinking": thinking},
+        "extra_body": {"enable_thinking": model_config.thinking},
     }
+    if model_config.temperature is not None:
+        config["temperature"] = model_config.temperature
+    if model_config.top_p is not None:
+        config["top_p"] = model_config.top_p
 
     thread_id = get_thread_id()
     if thread_id:
         config["default_headers"] = {"x-litellm-session-id": thread_id}
-
-    config.update(kwargs)
 
     model = init_chat_model(**config)
     return model

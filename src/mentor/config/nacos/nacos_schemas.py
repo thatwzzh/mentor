@@ -16,6 +16,7 @@ class MCPServerConfig(BaseModel):
 
 
 class AgentSpec(BaseModel):
+    name: str
     description: str = Field(default="")
     system_prompt: str = Field(default="")
     model: AgentModelConfig = Field(default_factory=AgentModelConfig)

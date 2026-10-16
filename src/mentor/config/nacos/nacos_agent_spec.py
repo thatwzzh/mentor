@@ -24,7 +24,7 @@ async def get_agent_spec(agent_name: str) -> AgentSpec:
         )
         response = response.json()
     if response["code"] != 0:
-        return AgentSpec()
+        return AgentSpec(name=agent_name)
 
     response = response["data"]
     config = response.get("content", {})
@@ -38,6 +38,7 @@ async def get_agent_spec(agent_name: str) -> AgentSpec:
         .get("content", "")
     )
     config["system_prompt"] = system_prompt
+    config["name"] = agent_name
     return AgentSpec.model_validate(config)
 
 

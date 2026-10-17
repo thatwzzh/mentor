@@ -55,9 +55,19 @@ make debug
 
   API 接口：http://127.0.0.1:8090/docs
 
+- **Shared MinIO（共享对象存储）**
+
+  管理后台：http://localhost:9003
+
+  账号：root
+
+  密码：12345678
+
+  宿主机访问 API：http://localhost:9002
+
 ### 不常用服务
 
-- MinIO 管理后台
+- Langfuse MinIO 管理后台
 
   访问地址： http://localhost:9001
 

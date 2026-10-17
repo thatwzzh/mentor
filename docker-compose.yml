@@ -1,4 +1,4 @@
-name: mentor
+name: deal-pilot
 services:
   langfuse-worker:
     image: docker.langfuse.com/langfuse/langfuse-worker:4
@@ -227,6 +227,7 @@ services:
         target: /home/nacos/data/plugin/plugin-states.json
         bind:
           create_host_path: false
+
   opensandbox-server:
     image: docker.io/opensandbox/server:release-1.1.0
     restart: unless-stopped
@@ -242,6 +243,28 @@ services:
       - ./opensandbox_config.toml:/etc/opensandbox/config.toml:ro
       - opensandbox_server_data:/root/.opensandbox
 
+  # 共享对象存储，用于保存 Agent 生成的产物、用户上传的文件
+  shared-minio:
+    image: cgr.dev/chainguard/minio
+    restart: always
+    entrypoint: sh
+    command: -c 'minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: root
+      MINIO_ROOT_PASSWORD: "12345678"
+      MINIO_BROWSER_REDIRECT_URL: http://localhost:9003
+    ports:
+      - "9002:9000" # 对象存储 API
+      - "9003:9001" # 管理控制台
+    volumes:
+      - shared_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+
 volumes:
   langfuse_clickhouse_data:
   langfuse_clickhouse_logs:
@@ -253,4 +276,4 @@ volumes:
   nacos_data:
   nacos_logs:
   opensandbox_server_data:
-
+  shared_minio_data:

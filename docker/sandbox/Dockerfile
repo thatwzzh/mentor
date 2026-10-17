@@ -22,4 +22,12 @@ RUN npm install --global pnpm@12 \
     && pnpm --version \
     && test "$(pnpm config get registry)" = "https://registry.npmmirror.com/"
 
+# 构建上下文使用项目根目录：docker build -t opensandbox-python-node:1.0 -f docker/sandbox/Dockerfile .
+WORKDIR /sandbox_utils
+RUN uv init --bare --name sandbox-utils --python 3.13
+RUN uv add "aiobotocore==3.9.2"
+
+COPY src/mentor/utils/minio.py /sandbox_utils/minio.py
+RUN uv run --locked python -c "from minio import MinIO"
+
 WORKDIR /root/workspace

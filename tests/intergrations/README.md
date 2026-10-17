@@ -118,17 +118,17 @@ Deploy 的远程用例需要同时准备真实 MinIO 和具有上传依赖的 Op
 - `OPEN_SANDBOX_DOMAIN`、`OPEN_SANDBOX_API_KEY`。
 - `DEPLOY_SANDBOX_IMAGE`，须使用项目 `docker/sandbox/Dockerfile` 构建的镜像。
   当前工具使用镜像内 `/sandbox_utils` 的 uv、aiobotocore 和 MinIO 客户端。
-  可手动构建：`docker build -t deal-pilot-sandbox:deploy-it -f docker/sandbox/Dockerfile .`。
+  可手动构建：`docker build -t mentor-sandbox:deploy-it -f docker/sandbox/Dockerfile .`。
   构建会下载基础镜像和依赖，并在本机保存新镜像，不启动服务或挂载业务数据卷；
   学生执行同一命令即可准备。测试不会自动构建镜像。
 
 ```sh
-MINIO_INTEGRATION=1 DEPLOY_INTEGRATION=1 DEPLOY_SANDBOX_IMAGE=deal-pilot-sandbox:deploy-it uv run pytest -q tests/intergrations/test_deploy.py
+MINIO_INTEGRATION=1 DEPLOY_INTEGRATION=1 DEPLOY_SANDBOX_IMAGE=mentor-sandbox:deploy-it uv run pytest -q tests/intergrations/test_deploy.py
 ```
 
 只设置 `MINIO_INTEGRATION=1`（包括现有 `make test-integrations`）不会创建沙箱。
 要通过 Makefile 同时验收两者，使用
-`DEPLOY_INTEGRATION=1 DEPLOY_SANDBOX_IMAGE=deal-pilot-sandbox:deploy-it make test-integrations`。
+`DEPLOY_INTEGRATION=1 DEPLOY_SANDBOX_IMAGE=mentor-sandbox:deploy-it make test-integrations`。
 缺少必要配置会失败；未启用时跳过远程场景，工具参数 schema 检查仍可本地运行。
 
 ### 数据影响、回滚与覆盖边界

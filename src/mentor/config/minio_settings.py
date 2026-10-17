@@ -10,7 +10,8 @@ class MinioSettings(BaseSettingsWithEnv):
     endpoint: str = "localhost:9002"
     # 是否使用 HTTPS 连接。
     secure: bool = False
-
+    # 沙箱内上传地址
+    endpoint_in_sandbox: str = ""
     model_config = {"env_prefix": "MINIO_"}
 
 

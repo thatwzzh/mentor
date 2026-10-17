@@ -1,4 +1,4 @@
-name: deal-pilot
+name: mentor
 services:
   langfuse-worker:
     image: docker.langfuse.com/langfuse/langfuse-worker:4

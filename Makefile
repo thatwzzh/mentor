@@ -19,3 +19,6 @@ test-benchmark:
 
 test-units:
 	uv run pytest -q tests/units
+
+test-integrations:
+	MINIO_INTEGRATION=1 DEPLOY_INTEGRATION=1 DEPLOY_SANDBOX_IMAGE=opensandbox-python-node:1.0 uv run pytest -q tests/intergrations

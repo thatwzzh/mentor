@@ -3,6 +3,7 @@ from mentor.config.nacos_settings import nacos_settings
 from mentor.config.nacos.nacos_mcp import get_mcps
 from mentor.utils.func_tools import func_cache
 from mentor.config.nacos.nacos_schemas import AgentSpec
+from mentor.config.nacos.nacos_prompt import get_prompts
 import asyncio
 import json
 import httpx
@@ -39,6 +40,9 @@ async def get_agent_spec(agent_name: str) -> AgentSpec:
     )
     config["system_prompt"] = system_prompt
     config["name"] = agent_name
+    link_prompts = config.get("link_prompts", [])
+    prompt = await get_prompts(link_prompts)
+    config["system_prompt"] = system_prompt + "\n\n" + prompt
     return AgentSpec.model_validate(config)
 
 

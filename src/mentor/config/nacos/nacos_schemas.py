@@ -24,6 +24,7 @@ class AgentSpec(BaseModel):
     mcps: dict[str, MCPServerConfig] = Field(default_factory=dict)
     tools: list[str] = Field(default_factory=list)
     subagents: list[str] = Field(default_factory=list)
+    link_prompts: list[str] = Field(default_factory=list)
 
 
 class OpenSandboxConfig(BaseModel):

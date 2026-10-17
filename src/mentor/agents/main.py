@@ -10,6 +10,8 @@ from mentor.agents.main_agent_state import MainAgentState
 from mentor.middlewares.turn_summary import turn_summary
 from mentor.agents.agent_factory import AgentFactory
 
+from mentor.backends.sandbox_backend import SandboxBackend
+
 
 class MainAgentFactory(AgentFactory):
     @property
@@ -32,6 +34,7 @@ class MainAgentFactory(AgentFactory):
             state_schema=MainAgentState,
             subagents=[CompiledSubAgent(**config) for config in subagents],
             middleware=[turn_summary],
+            backend=SandboxBackend(),
         )
         return agent
 

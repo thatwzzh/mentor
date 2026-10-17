@@ -48,6 +48,8 @@ make debug
   账号：nacos
   
   密码：初始界面自行设定
+
+  API接口文档：https://nacos.io/swagger/client/
     
 - **OpenSandbox Server**
 

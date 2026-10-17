@@ -221,6 +221,12 @@ services:
         volume:
           nocopy: true
       - nacos_logs:/home/nacos/logs
+      # 插件启停状态：修改本地 JSON 后重启 Nacos 生效。
+      - type: bind
+        source: ./docker/nacos/plugin-states.json
+        target: /home/nacos/data/plugin/plugin-states.json
+        bind:
+          create_host_path: false
   opensandbox-server:
     image: docker.io/opensandbox/server:release-1.1.0
     restart: unless-stopped

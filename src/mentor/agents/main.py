@@ -1,16 +1,12 @@
 from collections.abc import Sequence
 from typing import Any
+from langchain.agents.middleware import AgentMiddleware, AgentState
+from deepagents import DeepAgentState
 
-from langchain.tools import BaseTool
-
-from deepagents import create_deep_agent
-from deepagents.middleware import CompiledSubAgent
 from mentor.utils.trace_wrapper import trace_wrapper
 from mentor.agents.main_agent_state import MainAgentState
 from mentor.middlewares.turn_summary import turn_summary
 from mentor.agents.agent_factory import AgentFactory
-
-from mentor.backends.sandbox_backend import SandboxBackend
 
 
 class MainAgentFactory(AgentFactory):
@@ -18,25 +14,11 @@ class MainAgentFactory(AgentFactory):
     def name(self) -> str:
         return "main_agent"
 
-    async def create_agent(
-        self,
-        *,
-        model: Any,
-        system_prompt: str,
-        tools: Sequence[BaseTool],
-        subagents: list[dict],
-        skills: list[str],
-    ):
-        agent = create_deep_agent(
-            model=model,
-            system_prompt=system_prompt,
-            tools=tools,
-            state_schema=MainAgentState,
-            subagents=[CompiledSubAgent(**config) for config in subagents],
-            middleware=[turn_summary],
-            backend=SandboxBackend(),
-        )
-        return agent
+    def get_state_schema(self) -> type[DeepAgentState] | None:
+        return MainAgentState
+
+    def get_middlewares(self) -> Sequence[AgentMiddleware[AgentState[Any], None, Any]]:
+        return [turn_summary]
 
 
 main_agent_factory = MainAgentFactory()

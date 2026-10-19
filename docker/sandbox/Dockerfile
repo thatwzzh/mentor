@@ -2,6 +2,10 @@ FROM node:24-bookworm AS node
 
 FROM python:3.13-bookworm
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends unzip \
+    && rm -rf /var/lib/apt/lists/*
+
 # 从同为 Debian Bookworm 的官方镜像复制 Node.js 和 npm。
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
@@ -22,7 +26,7 @@ RUN npm install --global pnpm@12 \
     && pnpm --version \
     && test "$(pnpm config get registry)" = "https://registry.npmmirror.com/"
 
-# 构建上下文使用项目根目录：docker build -t opensandbox-python-node:1.0 -f docker/sandbox/Dockerfile .
+# 构建上下文使用项目根目录：docker build -f docker/sandbox/Dockerfile .
 WORKDIR /sandbox_utils
 RUN uv init --bare --name sandbox-utils --python 3.13
 RUN uv add "aiobotocore==3.9.2"

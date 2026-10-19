@@ -212,7 +212,7 @@ services:
       NACOS_AUTH_IDENTITY_VALUE: a820b4504731b71773ba2e711eb09496e8456ea4321c7856
     ports:
       - "127.0.0.1:8080:8080" # 控制台
-      - "127.0.0.1:8848:8848" # HTTP 客户端 API
+      - "8848:8848" # HTTP 客户端 API，沙箱通过 host.docker.internal 访问
       - "127.0.0.1:9848:9848" # gRPC 客户端通信
     volumes:
       - type: volume

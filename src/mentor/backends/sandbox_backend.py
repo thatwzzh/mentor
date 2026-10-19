@@ -13,7 +13,7 @@ from mentor.utils.shared import get_user_id
 import asyncio
 from mentor.config.nacos.nacos_schemas import OpenSandboxConfig
 from mentor.config.nacos.nacos_config import get_config
-from mentor.utils.sandbox import enter_sandbox
+from mentor.utils.sandbox import enter_sandbox, VolumeConfig, SHARED_VOLUME_NAME
 from opensandbox.models.execd import RunCommandOpts
 from datetime import timedelta
 
@@ -34,6 +34,14 @@ class SandboxBackend(BaseSandbox):
     def id(self) -> str:
         return self.id_getter()
 
+    def _get_volume_configs(self) -> list[VolumeConfig]:
+        return [
+            VolumeConfig(
+                mount_path="/root", readonly=False, name=self.id.replace("_", "-")
+            ),
+            VolumeConfig(mount_path="/shared", readonly=True, name=SHARED_VOLUME_NAME),
+        ]
+
     def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
         return asyncio.run(self.aexecute(command, timeout=timeout))
 
@@ -49,7 +57,9 @@ class SandboxBackend(BaseSandbox):
         config = await get_config("sandbox_config", OpenSandboxConfig)
         if timeout is None or timeout < 0:
             timeout = config.command_timeout_seconds
-        async with enter_sandbox(self.id) as sandbox:
+        async with enter_sandbox(
+            self.id, volume_configs=self._get_volume_configs()
+        ) as sandbox:
             execution = await sandbox.commands.run(
                 command, opts=RunCommandOpts(timeout=timedelta(seconds=timeout))
             )
@@ -61,7 +71,9 @@ class SandboxBackend(BaseSandbox):
         self, files: list[tuple[str, bytes]]
     ) -> list[FileUploadResponse]:
         responses: list[FileUploadResponse] = []
-        async with enter_sandbox(self.id) as sandbox:
+        async with enter_sandbox(
+            self.id, volume_configs=self._get_volume_configs()
+        ) as sandbox:
             for path, data in files:
                 try:
                     await sandbox.files.write_file(path, data)
@@ -72,7 +84,9 @@ class SandboxBackend(BaseSandbox):
 
     async def adownload_files(self, paths: list[str]) -> list[FileDownloadResponse]:
         responses: list[FileDownloadResponse] = []
-        async with enter_sandbox(self.id) as sandbox:
+        async with enter_sandbox(
+            self.id, volume_configs=self._get_volume_configs()
+        ) as sandbox:
             for path in paths:
                 try:
                     content = await sandbox.files.read_bytes(path)

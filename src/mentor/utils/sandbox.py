@@ -11,6 +11,7 @@ from datetime import timedelta
 from opensandbox.config import ConnectionConfig
 from opensandbox.exceptions import SandboxApiException
 from mentor.config.sandbox_settings import sandbox_settings
+from pydantic import BaseModel, Field
 import uuid
 import asyncio
 
@@ -18,6 +19,15 @@ _MEMEORY_STORE = InMemoryStore()
 
 _locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 _NAMESPACE = ("__sandbox__",)
+
+SHARED_VOLUME_NAME = "sandbox-shared-data"
+SHARED_SANDBOX_KEY = "sandbox-shared"
+
+
+class VolumeConfig(BaseModel):
+    mount_path: str
+    name: str
+    readonly: bool = Field(default=False)
 
 
 async def _get_store(store: BaseStore, key: str, field_name: str) -> str | None:
@@ -29,21 +39,27 @@ async def _get_store(store: BaseStore, key: str, field_name: str) -> str | None:
 
 async def _create(
     *,
-    sandbox_config: OpenSandboxConfig,
-    connection_config: ConnectionConfig,
     key: str,
     store: BaseStore,
+    sandbox_config: OpenSandboxConfig,
+    connection_config: ConnectionConfig,
+    volume_configs: list[VolumeConfig] | None = None,
 ) -> Sandbox:
-    v_name = await _get_store(store, key, "volume")
-    if v_name is None:
-        v_name = str(uuid.uuid4()).replace("-", "")
-    v = Volume(
-        name=v_name,
-        pvc=PVC(
-            claimName=v_name, createIfNotExists=True, deleteOnSandboxTermination=False
-        ),
-        mountPath="/root",
-    )
+    if volume_configs is None:
+        volume_configs = []
+    volumes = [
+        Volume(
+            name=v.name,
+            mountPath=v.mount_path,
+            readOnly=v.readonly,
+            pvc=PVC(
+                claimName=v.name,
+                createIfNotExists=True,
+                deleteOnSandboxTermination=False,
+            ),
+        )
+        for v in volume_configs
+    ]
     sandbox = await Sandbox.create(
         image=sandbox_config.image,
         # 连接沙箱Server的配置
@@ -53,10 +69,9 @@ async def _create(
         # 等待沙箱准备就绪（容器拉起）的时间
         ready_timeout=timedelta(seconds=sandbox_config.ready_timeout_seconds),
         # 挂载卷柜
-        volumes=[v],
+        volumes=volumes,
     )
-
-    await store.aput(_NAMESPACE, key, {"sandbox_id": sandbox.id, "volume": v_name})
+    await store.aput(_NAMESPACE, key, {"sandbox_id": sandbox.id})
     return sandbox
 
 
@@ -82,7 +97,11 @@ async def _connect(
             raise
 
 
-async def get_sandbox(key: str | None = None, store: BaseStore | None = None):
+async def get_sandbox(
+    key: str | None = None,
+    store: BaseStore | None = None,
+    volume_configs: list[VolumeConfig] | None = None,
+):
     # 参数归一化
     if key is None:
         key = str(uuid.uuid4())
@@ -112,15 +131,28 @@ async def get_sandbox(key: str | None = None, store: BaseStore | None = None):
         sandbox = await _create(
             sandbox_config=sandbox_config,
             connection_config=connection_config,
-            key=key,
             store=store,
+            key=key,
+            volume_configs=volume_configs,
         )
         return sandbox
 
 
+async def get_shared_sandbox(store: BaseStore | None = None):
+    return await get_sandbox(
+        SHARED_SANDBOX_KEY,
+        store,
+        [VolumeConfig(mount_path="/shared", name=SHARED_VOLUME_NAME, readonly=False)],
+    )
+
+
 @asynccontextmanager
-async def enter_sandbox(key: str | None = None, store: BaseStore | None = None):
-    sandbox = await get_sandbox(key, store)
+async def enter_sandbox(
+    key: str | None = None,
+    store: BaseStore | None = None,
+    volume_configs: list[VolumeConfig] | None = None,
+):
+    sandbox = await get_sandbox(key, store, volume_configs)
     config = await get_config("sandbox_config", OpenSandboxConfig)
     await sandbox.renew(timedelta(seconds=config.timeout_seconds))
     yield sandbox

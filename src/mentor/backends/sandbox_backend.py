@@ -1,6 +1,9 @@
 """DeepAgents 沙箱后端：把文件读写、命令执行和删除映射到 OpenSandbox。"""
 
+import asyncio
 from collections.abc import Callable
+from datetime import timedelta
+from pathlib import PurePosixPath
 
 from deepagents.backends.protocol import (
     DeleteResult,
@@ -9,15 +12,34 @@ from deepagents.backends.protocol import (
     FileUploadResponse,
 )
 from deepagents.backends.sandbox import BaseSandbox
-from mentor.utils.shared import get_user_id
-import asyncio
-from mentor.config.nacos.nacos_schemas import OpenSandboxConfig
-from mentor.config.nacos.nacos_config import get_config
-from mentor.utils.sandbox import enter_sandbox, VolumeConfig, SHARED_VOLUME_NAME
+from opensandbox.exceptions import SandboxApiException
 from opensandbox.models.execd import RunCommandOpts
-from datetime import timedelta
+
+from mentor.config.nacos.nacos_config import get_config
+from mentor.config.nacos.nacos_schemas import OpenSandboxConfig
+from mentor.utils.sandbox import SHARED_VOLUME_NAME, VolumeConfig, enter_sandbox
+from mentor.utils.shared import get_user_id
 
 type IdGetter = Callable[[], str]
+
+
+def _validate_delete_path(file_path: str) -> str:
+    """只允许删除沙箱内 /root 下的普通工作区路径。
+
+    这里是词法校验；父目录若通过符号链接指向 /root 外，由沙箱内 realpath 再拦一次。
+    """
+    if not isinstance(file_path, str) or not file_path or "\x00" in file_path:
+        raise ValueError("删除路径必须是非空字符串")
+    if "\n" in file_path or "\r" in file_path:
+        raise ValueError("删除路径不能包含换行符")
+    path = PurePosixPath(file_path)
+    if not path.is_absolute():
+        raise ValueError("删除路径必须是绝对路径")
+    if ".." in path.parts:
+        raise ValueError("删除路径不能包含 ..")
+    if path.parts[:2] != ("/", "root") or path == PurePosixPath("/root"):
+        raise ValueError("只允许删除 /root 下的工作区路径")
+    return str(path)
 
 
 class SandboxBackend(BaseSandbox):
@@ -99,10 +121,47 @@ class SandboxBackend(BaseSandbox):
         return responses
 
     async def adelete(self, file_path: str) -> DeleteResult:
-        # 路径来自模型调用，当前直接拼进 shell；调用方必须先做绝对路径/.. 校验。
-        result = await self.aexecute(f"rm -rf -- {file_path}")
-        if result.exit_code == 0:
-            return DeleteResult(path=file_path)
-        return DeleteResult(
-            error=f"删除路径{file_path}失败，原因是:{result.output}\n退出码：{result.exit_code}"
-        )
+        try:
+            safe_path = _validate_delete_path(file_path)
+        except ValueError as exc:
+            return DeleteResult(error=str(exc))
+
+        async with enter_sandbox(
+            self.id, volume_configs=self._get_volume_configs()
+        ) as sandbox:
+            # 只解析父目录：父级若是指向 /root 外的符号链接，解析后会被下面的前缀检查拦住；
+            # 最后一段保持原样，删除符号链接本身而不是它的目标。
+            parent = PurePosixPath(safe_path).parent
+            resolved = await sandbox.commands.run(
+                ["realpath", "-m", "--", str(parent)]
+            )
+            canonical_parent = "".join(
+                message.text for message in resolved.logs.stdout
+            ).strip()
+            if resolved.exit_code != 0 or not canonical_parent:
+                return DeleteResult(
+                    error=f"无法解析删除路径的父目录: {safe_path}"
+                )
+            canonical = str(PurePosixPath(canonical_parent) / PurePosixPath(safe_path).name)
+            if not canonical.startswith("/root/") or canonical == "/root":
+                return DeleteResult(
+                    error=f"拒绝删除 /root 之外的路径: {canonical}"
+                )
+
+            try:
+                infos = await sandbox.files.get_file_info([canonical])
+            except SandboxApiException as exc:
+                if "not found" in str(exc).lower():
+                    # 删除不存在的路径保持幂等，与原 rm -rf 行为一致。
+                    return DeleteResult(path=safe_path)
+                return DeleteResult(error=f"删除路径{safe_path}失败: {exc}")
+
+            info = infos.get(canonical)
+            try:
+                if info is not None and info.entry_type == "directory":
+                    await sandbox.files.delete_directories([canonical])
+                else:
+                    await sandbox.files.delete_files([canonical])
+            except SandboxApiException as exc:
+                return DeleteResult(error=f"删除路径{safe_path}失败: {exc}")
+            return DeleteResult(path=safe_path)

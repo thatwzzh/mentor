@@ -3,15 +3,17 @@
 import base64
 import json
 import shlex
+from datetime import timedelta
 from pathlib import PurePosixPath
 from typing import TypedDict, cast
-from urllib.parse import quote
 
 from langchain.tools import tool
 from langchain_core.tools import ToolException
 from pydantic import BaseModel, Field
+
 from mentor.backends.sandbox_backend import SandboxBackend
 from mentor.config.minio_settings import minio_settings
+from mentor.utils.minio import MinIO
 from mentor.utils.shared import get_user_id
 
 
@@ -69,8 +71,8 @@ async def main():
         content_type_strategy=ContentTypeStrategy(extensions=types),
     )
     bucket = config["bucket_name"]
-    # 与直传课件一致：确保桶存在，并允许匿名读取交付产物。
-    await client.create_bucket(bucket, allow_public_read=True)
+    # 产物桶保持私有；访问通过宿主生成的预签名 URL 完成。
+    await client.create_bucket(bucket, allow_public_read=False)
     if source.is_dir():
         # 目录部署采用整体替换：先清空目标目录，再上传新产物。
         # 必须带末尾 /，避免误删同一用户下名称相似的其他目录。
@@ -151,7 +153,7 @@ class DeployInput(BaseModel):
         description="""
         指定部署完成过后，要访问的入口文件名称。
         比如：["index.html"、"static/chart.png"]
-        该工具会自动拼接好完整的 URL 访问地址，最终交付给用户访问
+        该工具会返回带签名的临时访问 URL，最终交付给用户访问（默认 1 小时有效）
         """,
     )
 
@@ -175,7 +177,8 @@ async def deploy(
 ) -> DeployOutput:
     """
     将沙箱内的文件或目录部署到云存储，返回部署统计、失败原因和入口访问地址。
-    使用当前认证用户的沙箱，在沙箱内直接上传到 MinIO 的公共读产物桶。
+    使用当前认证用户的沙箱，在沙箱内直接上传到 MinIO 的私有产物桶。
+    工具会先撤销该桶上历史遗留的匿名公共读策略，再返回短期预签名访问地址。
     目录部署：先删除当前用户目标目录下的全部旧文件，再递归上传新目录，
     本次产物中不再包含的旧文件也会被删除。
     单文件部署：只覆盖目标目录下的同名文件，保留其他文件。
@@ -199,7 +202,7 @@ async def deploy(
         success_count: 成功部署的文件数量。
         failure_count: 部署失败的文件数量；为 0 表示所有文件部署成功。
         failures: 失败文件及原因，键为沙箱内文件的绝对路径，值为错误描述。
-        urls: 上传成功的 entry_files 对应的入口访问地址列表。
+        urls: 上传成功的 entry_files 对应的预签名访问地址列表，有效期由 MINIO_PRESIGN_EXPIRE_SECONDS 控制。
 
     调用示例（目录部署，全部成功）：
 
@@ -216,8 +219,8 @@ async def deploy(
         "failure_count": 0,
         "failures": {},
         "urls": [
-            "http://localhost:9002/agent-artifacts/user-id/vue-app/index.html",
-            "http://localhost:9002/agent-artifacts/user-id/vue-app/static/chart.png"
+            "<预签名 URL，默认 1 小时有效>",
+            "<预签名 URL，默认 1 小时有效>"
         ]
     }
 
@@ -237,7 +240,7 @@ async def deploy(
         "failure_count": 0,
         "failures": {},
         "urls": [
-            "http://localhost:9002/agent-artifacts/user-id/deep-research/reporter.zip"
+            "<预签名 URL，默认 1 小时有效>"
         ]
     }
     """
@@ -287,6 +290,21 @@ async def deploy(
         return message
 
     backend = SandboxBackend(lambda: user_id)
+
+    # 先把历史遗留的匿名公共读策略撤掉；失败时不继续上传，避免产物再次公开。
+    minio = MinIO(
+        endpoint=minio_settings.endpoint,
+        access_key=minio_settings.access_key,
+        secret_key=minio_settings.secret_key,
+        secure=minio_settings.secure,
+    )
+    try:
+        await minio.set_bucket_private(_BUCKET_NAME)
+    except Exception as exc:
+        raise RuntimeError(
+            f"部署失败: 无法确认产物桶为私有，请检查 MinIO 凭据的桶策略权限: {redact(str(exc))}"
+        ) from None
+
     try:
         execution = await backend.aexecute(command)
     except Exception as exc:
@@ -321,10 +339,14 @@ async def deploy(
     result["failures"] = {
         filename: redact(reason) for filename, reason in result["failures"].items()
     }
-    scheme = "https" if minio_settings.secure else "http"
-    base_url = f"{scheme}://{minio_settings.endpoint}/{_BUCKET_NAME}"
+    # 桶是私有的，入口地址必须使用短期预签名 URL，不能拼接永久公开链接。
+    expires = timedelta(seconds=minio_settings.presign_expire_seconds)
     result["urls"] = [
-        f"{base_url}/{quote(f'{prefix}/{entry}', safe='/')}"
+        await minio.presigned_get_file_url(
+            bucket_name=_BUCKET_NAME,
+            filename=f"{prefix}/{entry}",
+            expires=expires,
+        )
         for entry in successful_entries
     ]
     return cast(DeployOutput, result)

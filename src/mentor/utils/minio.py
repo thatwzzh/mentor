@@ -80,6 +80,17 @@ def _error_code(exc: ClientError) -> str:
     return str(exc.response.get("Error", {}).get("Code", ""))
 
 
+def _is_public_read_statement(statement: dict, resource: str) -> bool:
+    """判断一条策略语句是否为本客户端添加的匿名 GET 公共读。"""
+    return (
+        statement.get("Effect") == "Allow"
+        and statement.get("Principal") in ("*", ["*"], {"AWS": "*"}, {"AWS": ["*"]})
+        and statement.get("Action") in ("s3:GetObject", ["s3:GetObject"])
+        and statement.get("Resource") in (resource, [resource])
+        and not statement.get("Condition")
+    )
+
+
 @dataclass
 class CacheStrategy:
     """按文件后缀配置上传对象的 Cache-Control。
@@ -328,14 +339,7 @@ class MinIO:
                 policy["Statement"] = statements
             resource = f"arn:aws:s3:::{bucket_name}/*"
             for statement in statements:
-                if (
-                    statement.get("Effect") == "Allow"
-                    and statement.get("Principal")
-                    in ("*", {"AWS": "*"}, {"AWS": ["*"]})
-                    and statement.get("Action") in ("s3:GetObject", ["s3:GetObject"])
-                    and statement.get("Resource") in (resource, [resource])
-                    and not statement.get("Condition")
-                ):
+                if _is_public_read_statement(statement, resource):
                     return
             statements.append(
                 {
@@ -348,6 +352,44 @@ class MinIO:
             await client.put_bucket_policy(
                 Bucket=bucket_name, Policy=json.dumps(policy)
             )
+
+    async def set_bucket_private(self, bucket_name: str) -> None:
+        """撤销本客户端添加的匿名公共读语句，保留其他策略。
+
+        桶不存在或没有桶策略时直接返回；策略权限不足时向调用方传播。
+        """
+        bucket_name = _bucket(bucket_name)
+        async with self._client() as client:
+            try:
+                response = await client.get_bucket_policy(Bucket=bucket_name)
+            except ClientError as exc:
+                if _error_code(exc) in {
+                    "NoSuchBucketPolicy",
+                    "NoSuchBucket",
+                    "404",
+                    "NotFound",
+                }:
+                    return
+                raise
+            policy = json.loads(response["Policy"])
+            statements = policy.get("Statement", [])
+            if isinstance(statements, dict):
+                statements = [statements]
+            resource = f"arn:aws:s3:::{bucket_name}/*"
+            kept = [
+                statement
+                for statement in statements
+                if not _is_public_read_statement(statement, resource)
+            ]
+            if len(kept) == len(statements):
+                return
+            if kept:
+                policy["Statement"] = kept
+                await client.put_bucket_policy(
+                    Bucket=bucket_name, Policy=json.dumps(policy)
+                )
+            else:
+                await client.delete_bucket_policy(Bucket=bucket_name)
 
     async def bucket_exists(self, bucket_name: str) -> bool:
         """桶不存在时返回 False，存在时返回 True；权限和网络错误仍抛出。"""

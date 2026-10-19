@@ -17,6 +17,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from mentor.backends.sandbox_backend import SandboxBackend
 from mentor.config.nacos.nacos_agent_spec import get_agent_spec
 from mentor.config.nacos.nacos_schemas import AgentSpec
+from mentor.config.nacos.nacos_skill import ensure_skills, skill_path
 from langchain_core.runnables import Runnable
 from mentor.utils.create_model import create_model
 from mentor.tools import get_tools
@@ -86,17 +87,20 @@ class AgentFactory(ABC):
     async def _get_subagents(self) -> list[dict]:
         if not self.agent_config:
             return []
+        # 先过滤未注册的名称，避免为一个可选的、未实现的子 Agent 去请求 Nacos。
+        configured = [
+            name
+            for name in self.agent_config.subagents
+            if name in _AGENT_FACTORIES
+        ]
         specs = await asyncio.gather(
-            *[get_agent_spec(agent_name) for agent_name in self.agent_config.subagents]
+            *[get_agent_spec(agent_name) for agent_name in configured]
         )
 
         subagents = []
         for spec in specs:
             name = spec.name
             description = spec.description
-            if name not in _AGENT_FACTORIES:
-                # 未知子 Agent 直接跳过：Nacos 里多写一个名字不应阻断主 Agent 启动。
-                continue
             module_path = _AGENT_FACTORIES[name]
             module = import_module(module_path)
             factory = getattr(module, "factory")
@@ -112,6 +116,8 @@ class AgentFactory(ABC):
         # 注意：AgentFactory 是单例，factory() 并发执行时 this.agent_config 会互相覆盖。
         agent_config = await get_agent_spec(self.name)
         self.agent_config = agent_config
+        # 技能刷新与配置读取解耦：有可用版本时立即返回，过期版本在后台刷新。
+        await ensure_skills(self.name, agent_config.skills)
         model = self._get_model()
         tools = await self._get_tools()
         subagents = await self._get_subagents()
@@ -143,8 +149,8 @@ class AgentFactory(ABC):
             "backend": self.get_backend(),
         }
         if len(skills):
-            # 技能已由 nacos_skill 下发到共享卷；这里只声明挂载路径，目录按 Agent 名隔离。
-            config["skills"] = [f"/shared/skills/{self.name}"]
+            # 技能已按内容版本落到共享卷；current 是指向可用版本的原子符号链接。
+            config["skills"] = [skill_path(self.name)]
 
         agent = create_deep_agent(**config)
         return agent

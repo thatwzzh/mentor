@@ -87,7 +87,7 @@ Nacos sandbox_config（YAML）
 要点：
 
 - Agent 规格按 `label=production` 读取，`NACOS_TTL` 控制本地缓存时间。
-- Skill 包由共享沙箱下载并解压到 `/shared/skills/<agent_name>/`，用户沙箱以只读方式挂载 `/shared`。
+- Skill 包由共享沙箱下载并按内容哈希落到 `/shared/skills/<agent_name>/<version>/`，`current` 符号链接原子指向可用版本；用户沙箱以只读方式挂载 `/shared`。
 - `sandbox_config` 不直接发给 OpenSandbox；它是 Agent 创建沙箱时的参数来源。
 
 ### 4.2 执行链路：Agent → OpenSandbox → MinIO
@@ -102,6 +102,7 @@ Nacos sandbox_config（YAML）
             ├─ 普通文件：/root/workspace（用户级 PVC，持久）
             └─ deploy：沙箱内脚本直传 MinIO
                 → agent-artifacts/<user_id>/<target_dirname>/
+                → 宿主生成预签名 URL（默认 1 小时有效）
 ```
 
 要点：
@@ -224,6 +225,7 @@ docker compose up -d shared-minio
 | `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | MinIO 凭据；建议使用服务账号，不要长期使用 root |
 | `MINIO_ENDPOINT` | 宿主机访问 MinIO 的地址 |
 | `MINIO_ENDPOINT_IN_SANDBOX` | 沙箱内访问 MinIO 的地址 |
+| `MINIO_PRESIGN_EXPIRE_SECONDS` | 产物预签名 URL 的有效期，默认 3600 秒 |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_DEFAULT_MODEL` | LiteLLM 上游模型配置 |
 | `OPEN_SANDBOX_DOMAIN` / `OPEN_SANDBOX_API_KEY` | OpenSandbox Server 连接配置 |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 连接配置 |
@@ -236,7 +238,7 @@ docker compose up -d shared-minio
 
 - **控制面（Nacos）**：保存 Prompt 与 Agent 规格，属于受信配置；修改权限应只开放给开发者。
 - **执行面（OpenSandbox）**：运行模型生成的代码，按不可信代码处理；沙箱容器移除高危 capability，开启 `no_new_privileges`，限制 PID。
-- **数据面（MinIO）**：产物桶当前是公共读（`deploy.py` 中 `allow_public_read=True`），只适合内网/演示；生产应改为私有桶 + 预签名 URL 或网关鉴权。
+- **数据面（MinIO）**：产物桶是私有桶，`deploy` 返回短期预签名 URL；不要把桶改成匿名公共读。
 - **观测面（Langfuse）**：trace 可能包含完整 Prompt / 输出，需控制访问权限并按保留策略清理。
 
 ### 8.2 凭据
@@ -258,7 +260,10 @@ docker compose up -d shared-minio
         "s3:PutObject",
         "s3:DeleteObject",
         "s3:ListBucket",
-        "s3:CreateBucket"
+        "s3:CreateBucket",
+        "s3:GetBucketPolicy",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy"
       ],
       "Resource": [
         "arn:aws:s3:::agent-artifacts",
@@ -283,6 +288,6 @@ docker compose up -d shared-minio
 2. Agent 从 Nacos 读取 `main_agent` 的 Prompt、工具白名单与 Skill。
 3. Agent 通过 LiteLLM 请求模型；模型决定调用 `execute` / `write_file` / `deploy`。
 4. `SandboxBackend` 找到该用户的沙箱（没有则创建），在 `/root/workspace` 中构建网页。
-5. `deploy` 在沙箱内把 `dist/` 上传到 MinIO 的 `agent-artifacts/<user>/<project>/`，返回入口 URL。
+5. `deploy` 在沙箱内把 `dist/` 上传到 MinIO 的 `agent-artifacts/<user>/<project>/`，宿主生成预签名 URL 并返回。
 6. 全过程的模型调用、工具调用与耗时写入 Langfuse trace。
 7. 开发者在 Langfuse 查看 trace，必要时调整 Nacos 中的 Prompt 或 Agent 规格；下一轮请求自动生效。

@@ -165,11 +165,12 @@ for name in {parents!r}:
             _IN_DEPLOY.reset(token)
         message = output["messages"][-1]
         assert isinstance(message, ToolMessage)
-        for credential in (self.settings.access_key, self.settings.secret_key):
-            if len(credential) >= 8:
-                assert credential not in str(
-                    message.content
-                ), "工具结果不得泄露 MinIO 凭据"
+        # 预签名 URL 的 X-Amz-Credential 会包含 access key id（签名协议的一部分），
+        # 但 secret key 绝不能出现在工具结果里。
+        content = str(message.content)
+        secret = self.settings.secret_key
+        if len(secret) >= 8:
+            assert secret not in content, "工具结果不得泄露 MinIO secret key"
         return message
 
     async def deploy(self, user_id, **args):

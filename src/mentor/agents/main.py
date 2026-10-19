@@ -1,3 +1,5 @@
+"""主 Agent 定义：在通用工厂上挂载主 Agent 的 state 与中间件。"""
+
 from collections.abc import Sequence
 from typing import Any
 from langchain.agents.middleware import AgentMiddleware, AgentState

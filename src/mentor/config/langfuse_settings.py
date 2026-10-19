@@ -1,3 +1,5 @@
+"""Langfuse 配置：密钥、地址、Webhook 签名与 Trace 保留天数。"""
+
 from mentor.config.base_settings import BaseSettingsWithEnv
 
 

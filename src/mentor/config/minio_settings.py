@@ -1,3 +1,5 @@
+"""MinIO 配置：访问密钥、宿主机/沙箱内地址与 HTTPS 开关。"""
+
 from mentor.config.base_settings import BaseSettingsWithEnv
 
 

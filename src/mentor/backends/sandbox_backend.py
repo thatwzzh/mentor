@@ -1,5 +1,6 @@
+"""DeepAgents 沙箱后端：把文件读写、命令执行和删除映射到 OpenSandbox。"""
+
 from collections.abc import Callable
-from typing import Any
 
 from deepagents.backends.protocol import (
     DeleteResult,
@@ -8,7 +9,6 @@ from deepagents.backends.protocol import (
     FileUploadResponse,
 )
 from deepagents.backends.sandbox import BaseSandbox
-from opensandbox.models import WriteEntry
 from mentor.utils.shared import get_user_id
 import asyncio
 from mentor.config.nacos.nacos_schemas import OpenSandboxConfig
@@ -35,6 +35,7 @@ class SandboxBackend(BaseSandbox):
         return self.id_getter()
 
     def _get_volume_configs(self) -> list[VolumeConfig]:
+        # /root 是该用户的持久工作区；/shared 只读挂载公共技能与依赖，避免用户间互相污染。
         return [
             VolumeConfig(
                 mount_path="/root", readonly=False, name=self.id.replace("_", "-")
@@ -42,6 +43,7 @@ class SandboxBackend(BaseSandbox):
             VolumeConfig(mount_path="/shared", readonly=True, name=SHARED_VOLUME_NAME),
         ]
 
+    # BackendProtocol 的同步接口；asyncio.run 只能在非事件循环线程中调用。
     def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
         return asyncio.run(self.aexecute(command, timeout=timeout))
 
@@ -54,6 +56,7 @@ class SandboxBackend(BaseSandbox):
     async def aexecute(
         self, command: str, *, timeout: int | None = None
     ) -> ExecuteResponse:
+        # sandbox_config 由 Nacos 下发并经 func_cache 缓存；timeout<0 表示使用服务端默认值。
         config = await get_config("sandbox_config", OpenSandboxConfig)
         if timeout is None or timeout < 0:
             timeout = config.command_timeout_seconds
@@ -96,6 +99,7 @@ class SandboxBackend(BaseSandbox):
         return responses
 
     async def adelete(self, file_path: str) -> DeleteResult:
+        # 路径来自模型调用，当前直接拼进 shell；调用方必须先做绝对路径/.. 校验。
         result = await self.aexecute(f"rm -rf -- {file_path}")
         if result.exit_code == 0:
             return DeleteResult(path=file_path)

@@ -1,3 +1,5 @@
+"""评测配置：Agent 服务地址、评测用户与图 ID。"""
+
 from mentor.config.base_settings import BaseSettingsWithEnv
 
 

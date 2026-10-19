@@ -1,3 +1,5 @@
+"""运行时上下文读取：从 LangGraph config 中取 thread_id 与认证用户 ID。"""
+
 from langgraph.config import get_config
 
 

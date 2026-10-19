@@ -1,3 +1,5 @@
+"""OpenSandbox 生命周期管理：按 key 复用沙箱、挂载卷、续租与关闭。"""
+
 from contextlib import asynccontextmanager
 from langgraph.store.base import BaseStore
 from langgraph.runtime import get_runtime
@@ -15,9 +17,11 @@ from pydantic import BaseModel, Field
 import uuid
 import asyncio
 
-_MEMEORY_STORE = InMemoryStore()
+_MEMORY_STORE = InMemoryStore()
 
+# 同一 key 的并发请求共用一把锁，避免同时 connect 失败后重复创建沙箱。
 _locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
+# 沙箱 id 存在 LangGraph Store 的独立命名空间里，与业务数据隔离。
 _NAMESPACE = ("__sandbox__",)
 
 SHARED_VOLUME_NAME = "sandbox-shared-data"
@@ -55,6 +59,7 @@ async def _create(
             pvc=PVC(
                 claimName=v.name,
                 createIfNotExists=True,
+                # 沙箱销毁后保留 PVC，用户下次进入仍能看到 /root 下的工作区。
                 deleteOnSandboxTermination=False,
             ),
         )
@@ -91,6 +96,7 @@ async def _connect(
         )
         return sandbox
     except SandboxApiException as exc:
+        # 404 表示 Store 里记录的沙箱已过期/被回收，交给调用方重新创建。
         if exc.status_code == 404:
             return None
         else:
@@ -106,13 +112,14 @@ async def get_sandbox(
     if key is None:
         key = str(uuid.uuid4())
     if store is None:
+        # 优先用 LangGraph runtime 的持久 Store；脱离图上下文（如脚本/测试）时才退回内存 Store。
         try:
             runtime = get_runtime()
             store = runtime.store
             if store is None:
-                store = _MEMEORY_STORE
+                store = _MEMORY_STORE
         except:
-            store = _MEMEORY_STORE
+            store = _MEMORY_STORE
     sandbox_config = await get_config("sandbox_config", OpenSandboxConfig)
     connection_config = ConnectionConfig(
         domain=sandbox_settings.domain,
@@ -139,6 +146,7 @@ async def get_sandbox(
 
 
 async def get_shared_sandbox(store: BaseStore | None = None):
+    # 共享沙箱只挂 /shared，用于存放技能包与跨用户复用的依赖。
     return await get_sandbox(
         SHARED_SANDBOX_KEY,
         store,
@@ -154,6 +162,8 @@ async def enter_sandbox(
 ):
     sandbox = await get_sandbox(key, store, volume_configs)
     config = await get_config("sandbox_config", OpenSandboxConfig)
+    # 进入前续租一次，避免拿到一个即将到期的沙箱；退出时再续租，给后续调用留出时间。
+    # 注意：当前没有 try/finally，with 块内抛异常时下面的续租与 close 不会执行。
     await sandbox.renew(timedelta(seconds=config.timeout_seconds))
     yield sandbox
     await sandbox.renew(timedelta(seconds=config.timeout_seconds))

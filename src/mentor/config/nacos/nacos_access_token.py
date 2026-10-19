@@ -1,22 +1,24 @@
+"""Nacos 访问令牌管理：带缓存的登录与提前 30 秒刷新。"""
+
 import time
 import asyncio
 import httpx
 from ..nacos_settings import nacos_settings
 
-_access_token: str | None = None  # 缓存的token
-_expires_at = 0  # 过期时间
+_access_token: str | None = None  # 缓存的 token
+_expires_at = 0  # 基于 time.monotonic() 的过期时刻，避免系统时钟回拨
 _token_lock = asyncio.Lock()
 
 
 async def get_access_token() -> str:
-    "调用函数，获取access_token"
+    """获取 Nacos accessToken；命中缓存时直接返回，过期时串行刷新。"""
     global _access_token, _expires_at
-    if _access_token and time.monotonic() < _expires_at:  # 有值且没过期
+    if _access_token and time.monotonic() < _expires_at:
         return _access_token
 
-    # 同一时刻只能有一个协程进入所获取token
+    # 双重检查锁：首个协程刷新 token，其余协程在锁内直接复用新值。
     async with _token_lock:
-        if _access_token and time.monotonic() < _expires_at:  # 有值且没过期
+        if _access_token and time.monotonic() < _expires_at:
             return _access_token
         # 重新获取access_token
         _start_at = time.monotonic()

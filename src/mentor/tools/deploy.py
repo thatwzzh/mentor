@@ -1,3 +1,5 @@
+"""产物部署工具：在沙箱内把文件/目录直传 MinIO，并返回入口 URL。"""
+
 import base64
 import json
 import shlex
@@ -15,6 +17,7 @@ from mentor.utils.shared import get_user_id
 
 # 部署模块专用桶；其他上传模块自行定义各自的桶名。
 _BUCKET_NAME = "agent-artifacts"
+# 沙箱脚本用该前缀输出唯一一行 JSON 结果，宿主只解析这一行，忽略 stderr/日志。
 _RESULT_MARKER = "__DEPLOY_RESULT__="
 
 # 此脚本由镜像自带的 Python 环境运行，文件内容始终留在沙箱内。
@@ -278,6 +281,7 @@ async def deploy(
     command = "cd /sandbox_utils && uv run --locked python -c " + shlex.quote(script)
 
     def redact(message: str) -> str:
+        # 沙箱输出可能回显配置或密钥；返回模型/日志前统一打码。
         for secret in (encoded, minio_settings.access_key, minio_settings.secret_key):
             message = message.replace(secret, "[REDACTED]")
         return message
@@ -326,6 +330,7 @@ async def deploy(
     return cast(DeployOutput, result)
 
 
+# 工具错误（参数/产物路径问题）回给模型自行修复；RuntimeError 视为系统错误，终止当前图。
 deploy.handle_tool_error = True
 # Pydantic 的参数校验同样属于模型可修复错误，返回详细原因供模型调整参数。
 deploy.handle_validation_error = lambda exc: str(exc)

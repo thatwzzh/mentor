@@ -1,3 +1,5 @@
+"""向用户发起单选提问的工具；通过 LangGraph interrupt 暂停并在回答后恢复。"""
+
 from langchain.tools import tool
 from langgraph.types import interrupt
 from pydantic import BaseModel, Field, field_validator
@@ -51,6 +53,7 @@ def ask_user_question(question: str, options: list[QuestionOption]) -> str:
     当缺少必要信息、需要向用户提问时，向用户提出一个单选问题并暂停执行。
     用户可以选择一个已有选项，也可以输入自己的答案。
     """
+    # interrupt 会把 payload 写入 checkpoint 并暂停图；客户端用 Command(resume=answer) 恢复。
     answer = interrupt(
         {
             "type": "ask_user_question",

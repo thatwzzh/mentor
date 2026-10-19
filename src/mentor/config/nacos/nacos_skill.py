@@ -1,3 +1,5 @@
+"""技能下发：把 Nacos 中的技能包下载并解压到共享沙箱卷。"""
+
 import asyncio
 from urllib.parse import urlencode
 
@@ -49,6 +51,7 @@ if completed.returncode != 0:
 
 
 def _skill_url(skill_name: str) -> str:
+    # 沙箱内不能用宿主机的 localhost，必须使用 NACOS_SERVER_ADDRESS_IN_SANDBOX。
     address = nacos_settings.server_address_in_sandbox
     if not address:
         raise RuntimeError(
@@ -68,6 +71,7 @@ async def _save_skill(
     *, skill_name: str, sandbox: Sandbox, zip_path: str, skill_dir: str
 ):
     access_token = await get_access_token()
+    # 令牌与 URL 通过环境变量传入沙箱，避免拼进 shell 命令；下载/解压都在沙箱内完成。
     result = await sandbox.commands.run(
         ["python3", "-c", _INSTALL_SKILL],
         opts=RunCommandOpts(
@@ -84,11 +88,16 @@ async def _save_skill(
 
 
 async def save_skills(agent_name: str, skill_names: list[str] | None = None):
-    "将指定的skills保存到共享卷中"
+    """把指定技能下载到共享卷的 /shared/skills/<agent_name>/ 目录。
+
+    采用“先清空、再并发下载”的整体替换策略；当前没有跨进程锁，
+    并发刷新同一 Agent 时可能互相删除对方刚解压出的文件。
+    """
     if skill_names is None:
         skill_names = []
     sandbox = await get_shared_sandbox()
     skill_dir = f"/shared/skills/{agent_name}"
+    # 整目录替换，避免旧版本技能残留；必须用绝对路径，防止误删其他 Agent 的目录。
     await sandbox.commands.run(["rm", "-rf", skill_dir])
     await asyncio.gather(
         *[

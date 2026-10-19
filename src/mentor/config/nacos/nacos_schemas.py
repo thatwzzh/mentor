@@ -1,3 +1,5 @@
+"""Nacos 侧数据结构：Agent 模型、MCP、AgentSpec 与沙箱配置。"""
+
 from pydantic import BaseModel, Field
 from mentor.config.openai_settings import openai_settings
 

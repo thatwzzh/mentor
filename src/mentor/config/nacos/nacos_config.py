@@ -1,3 +1,5 @@
+"""从 Nacos 读取 YAML 配置，并按 Pydantic 模型解析。"""
+
 from typing import Literal
 from pydantic import BaseModel
 from mentor.config.nacos.nacos_schemas import OpenSandboxConfig
@@ -8,7 +10,9 @@ import httpx
 from mentor.config.nacos.nacos_access_token import get_access_token
 import yaml
 
+# 允许读取的配置名；新增配置时需要同时扩展此 Literal 和对应 Pydantic 模型。
 type ConfigName = Literal["sandbox_config"]
+# Nacos 侧统一使用 mentor 分组，dataId 即配置名。
 _GROUP_NAME = "mentor"
 
 
@@ -36,10 +40,11 @@ async def _get_config_content(config_name: ConfigName) -> str | None:
 
 async def get_config[T: BaseModel](config_name: ConfigName, schema: type[T]) -> T:
     content = await _get_config_content(config_name)
+    # 配置缺失时返回模型默认值，保证调用方始终拿到一个可用对象。
     if content is None:
         return schema()
-    dict = yaml.safe_load(content)
-    return schema.model_validate(dict)
+    data = yaml.safe_load(content)
+    return schema.model_validate(data)
 
 
 if __name__ == "__main__":

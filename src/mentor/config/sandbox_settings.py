@@ -1,3 +1,5 @@
+"""OpenSandbox 连接配置：API Key 与访问域名。"""
+
 from .base_settings import BaseSettingsWithEnv
 
 

@@ -1,4 +1,4 @@
-"""MinIO 异步接口契约；仅声明类型和行为，不包含实现。"""
+"""MinIO 异步接口契约；仅声明类型与行为，正式实现见 src/mentor/utils/minio.py。"""
 
 from dataclasses import dataclass, field
 from datetime import timedelta

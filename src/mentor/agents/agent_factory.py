@@ -1,3 +1,5 @@
+"""Agent 工厂：把 Nacos 规格、模型、工具、MCP、子 Agent 和技能装配成 DeepAgents 图。"""
+
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Any
@@ -24,6 +26,7 @@ from importlib import import_module
 from langchain.agents.middleware import AgentMiddleware
 
 
+# 子 Agent 名称 → 工厂模块路径。新增可委派子 Agent 时在此登记，模块内需导出 factory。
 _AGENT_FACTORIES = {"web_agent": "mentor.agents.web"}
 
 
@@ -58,6 +61,7 @@ class AgentFactory(ABC):
         )
         mcp_tools = await client.get_tools()
 
+        # 打开前缀后工具名形如 "<mcp_name>_<tool_name>"，禁用列表也必须使用同样的前缀。
         disabled_tool_names = [
             f"{mcp_name}_{name}" for name in mcp_config.disabled_tools
         ]
@@ -91,8 +95,9 @@ class AgentFactory(ABC):
             name = spec.name
             description = spec.description
             if name not in _AGENT_FACTORIES:
+                # 未知子 Agent 直接跳过：Nacos 里多写一个名字不应阻断主 Agent 启动。
                 continue
-            module_path = _AGENT_FACTORIES[name]  # 模块路径
+            module_path = _AGENT_FACTORIES[name]
             module = import_module(module_path)
             factory = getattr(module, "factory")
             runnable = await factory()
@@ -103,6 +108,8 @@ class AgentFactory(ABC):
         return subagents
 
     async def factory(self) -> Runnable:
+        # 规格在装配期间暂存在实例上，供 _get_model/_get_tools/_get_subagents 复用。
+        # 注意：AgentFactory 是单例，factory() 并发执行时 this.agent_config 会互相覆盖。
         agent_config = await get_agent_spec(self.name)
         self.agent_config = agent_config
         model = self._get_model()
@@ -136,6 +143,7 @@ class AgentFactory(ABC):
             "backend": self.get_backend(),
         }
         if len(skills):
+            # 技能已由 nacos_skill 下发到共享卷；这里只声明挂载路径，目录按 Agent 名隔离。
             config["skills"] = [f"/shared/skills/{self.name}"]
 
         agent = create_deep_agent(**config)

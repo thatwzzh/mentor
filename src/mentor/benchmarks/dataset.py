@@ -1,3 +1,5 @@
+"""Langfuse 数据集读取：分页列出数据集并获取数据项。"""
+
 from typing import List
 
 from langfuse import get_client
@@ -7,6 +9,7 @@ langfuse = get_client()
 
 
 def get_all_datasets():
+    # Langfuse 分页从 1 开始，按 total_pages 收敛，避免漏掉数据集。
     page = 1
     datasets: List[Dataset] = []
     while True:

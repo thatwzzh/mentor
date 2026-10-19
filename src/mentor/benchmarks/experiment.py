@@ -1,3 +1,5 @@
+"""Langfuse 实验执行器：逐条运行数据集，并把 trace 上下文透传给 Agent。"""
+
 from langfuse.api import DatasetItem
 from langfuse import get_client
 from mentor.benchmarks.dataset import get_items
@@ -12,14 +14,17 @@ langfuse = get_client()
 
 
 async def experiment_task(*, item: DatasetItem, **kwargs):
-    trace_id = langfuse.get_current_trace_id()  # 获取traceid
-    parent_span_id = langfuse.get_current_observation_id()  # 获取当前的parent_span_id
+    # langfuse.run_experiment 会为每条数据项创建 trace；把 id 透传给 Agent，
+    # 让 Agent 的模型/工具 span 嵌套在同一条实验 trace 下，而不是各起一条。
+    trace_id = langfuse.get_current_trace_id()
+    parent_span_id = langfuse.get_current_observation_id()
     span_attributes = getattr(trace.get_current_span(), "attributes", {})
     env = span_attributes.get("langfuse.environment")
     async with get_agent_client(
         url=benchmark_settings.agent_server,
         headers={"Authorization": f"Bearer {benchmark_settings.user_id}"},
     ) as client:
+        # thread_id=None 表示无状态运行，不污染真实用户会话。
         result = await client.runs.wait(
             thread_id=None,
             assistant_id=benchmark_settings.graph_id,

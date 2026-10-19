@@ -1,3 +1,5 @@
+"""OpenAI 兼容模型配置：API Key、Base URL 与默认模型。"""
+
 from mentor.config.base_settings import BaseSettingsWithEnv
 
 

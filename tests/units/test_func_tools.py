@@ -1,3 +1,5 @@
+"""func_cache 单元测试：覆盖命中、参数键、并发单飞、TTL 与 lazy 刷新。"""
+
 import asyncio
 import threading
 import time

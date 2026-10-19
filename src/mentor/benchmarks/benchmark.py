@@ -1,3 +1,5 @@
+"""评测入口：按数据集名称创建实验，或遍历全部数据集。"""
+
 from mentor.benchmarks.experiment import run_experiment
 from mentor.benchmarks.dataset import get_all_datasets
 

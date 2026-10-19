@@ -1,8 +1,9 @@
+"""部署工具接口示例；不参与运行时，正式实现见 src/mentor/tools/deploy.py。"""
+
 from typing import TypedDict
 
 from langchain.tools import tool
 from pydantic import BaseModel, Field
-from mentor.config.minio_settings import minio_settings
 
 
 class DeployInput(BaseModel):

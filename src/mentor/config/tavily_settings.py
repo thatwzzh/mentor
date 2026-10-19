@@ -1,3 +1,5 @@
+"""Tavily 搜索配置：API Key。"""
+
 from mentor.config.base_settings import BaseSettingsWithEnv
 
 

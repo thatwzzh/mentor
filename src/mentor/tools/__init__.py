@@ -1,9 +1,12 @@
+"""内置工具注册表：按名称选择工具，供 Agent 工厂装配。"""
+
 from langchain_core.tools import BaseTool
 from mentor.tools.ask_user_question import ask_user_question
 from mentor.tools.time import get_current_time
 from mentor.tools.web import fetch_url, web_search
 from mentor.tools.deploy import deploy
 
+# 新增内置工具需要三处同步：实现模块、本字典、Nacos AgentSpec 的 tools 白名单。
 _AVAILABLE_TOOLS: dict[str, BaseTool] = {
     "fetch_url": fetch_url,
     "web_search": web_search,
@@ -11,8 +14,6 @@ _AVAILABLE_TOOLS: dict[str, BaseTool] = {
     "ask_user_question": ask_user_question,
     "deploy": deploy,
 }
-
-tools: list[BaseTool] = list(_AVAILABLE_TOOLS.values())
 
 
 def get_tools(names: list[str]) -> list[BaseTool]:

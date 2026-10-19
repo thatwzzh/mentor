@@ -1,3 +1,5 @@
+"""获取当前时间的工具，返回带时区的 ISO 8601 字符串。"""
+
 from datetime import datetime, timezone
 
 from langchain.tools import tool

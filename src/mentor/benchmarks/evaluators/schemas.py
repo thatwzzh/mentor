@@ -1,3 +1,5 @@
+"""评测结果结构：分数与一句话理由。"""
+
 from pydantic import BaseModel, Field
 
 

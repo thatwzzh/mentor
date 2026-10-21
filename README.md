@@ -2,7 +2,7 @@
 
 基于 LangGraph / DeepAgents 的 Agent 服务：Nacos 管理运行时配置，OpenSandbox 提供隔离执行环境，LiteLLM 统一模型网关，MinIO 保存运行时文件与产物，Langfuse 负责观测与评估。
 
-完整架构说明见 [docs/architecture.md](docs/architecture.md)。
+完整架构说明见 [docs/architecture.md](docs/architecture.md)；开发、配置、沙箱与发布 runbook 见 [docs/project-guide.md](docs/project-guide.md)；多账号/多租户上线改造清单见 [docs/multi-account-hardening.md](docs/multi-account-hardening.md)。
 
 ## 启动服务
 
@@ -41,6 +41,10 @@ uv run mentor config doctor
 # 先体检再启动（任一项失败会阻止启动）
 make dev-check
 ```
+
+工具层：所有工具经过统一 `ToolExecutor`；超过 8KB 的输出落到 `TOOL_ARTIFACT_DIR` 并返回
+`artifact://` 引用。MCP 工具默认 `deferred`，模型通过 `tool_search` / `call_tool` 使用；
+需要旧行为时在 MCP server 配置里设 `exposure: direct`。
 
 ## 服务说明
 

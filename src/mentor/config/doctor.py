@@ -104,13 +104,15 @@ async def check_sandbox_config() -> list[CheckResult]:
         config = await get_config("sandbox_config", OpenSandboxConfig)
     except Exception as exc:
         return [CheckResult("sandbox.config", False, f"{type(exc).__name__}: {exc}")]
-    return [
-        CheckResult(
-            "sandbox.config",
-            bool(config.image),
-            f"image={config.image}, command_timeout={config.command_timeout_seconds}s",
+    detail = f"image={config.image}, command_timeout={config.command_timeout_seconds}s"
+    if config.cpu or config.memory:
+        detail += f", resource={config.cpu or '-'}/{config.memory or '-'}"
+    if config.network_default_action:
+        detail += (
+            f", network={config.network_default_action}"
+            f"({len(config.network_allow)} allow rules)"
         )
-    ]
+    return [CheckResult("sandbox.config", bool(config.image), detail)]
 
 
 async def run_doctor(agent_name: str = "main_agent") -> list[CheckResult]:

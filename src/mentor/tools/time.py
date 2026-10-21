@@ -4,7 +4,10 @@ from datetime import datetime, timezone
 
 from langchain.tools import tool
 
+from mentor.tools.specs import register_tool
 
+
+@register_tool(risk="read", timeout_s=5)
 @tool
 def get_current_time():
     """

@@ -4,6 +4,8 @@ from langchain.tools import tool
 from langgraph.types import interrupt
 from pydantic import BaseModel, Field, field_validator
 
+from mentor.tools.specs import register_tool
+
 
 class QuestionOption(BaseModel):
     """用户可选择的单选项。"""
@@ -47,6 +49,8 @@ class AskUserQuestionInput(BaseModel):
         return options
 
 
+# 人工等待不应被工具超时打断，因此 timeout_s=None。
+@register_tool(risk="read", timeout_s=None)
 @tool(args_schema=AskUserQuestionInput)
 def ask_user_question(question: str, options: list[QuestionOption]) -> str:
     """

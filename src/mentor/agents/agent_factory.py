@@ -12,7 +12,7 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 from deepagents import (
     AsyncSubAgent,
@@ -33,7 +33,10 @@ from mentor.backends.sandbox_backend import SandboxBackend
 from mentor.config.nacos.nacos_agent_spec import get_agent_spec
 from mentor.config.nacos.nacos_schemas import AgentSpec, MCPServerConfig
 from mentor.config.nacos.nacos_skill import ensure_skills, skill_path
-from mentor.tools import get_tools
+from mentor.middlewares.sandbox_lifecycle import sandbox_lifecycle_middleware
+from mentor.middlewares.tool_executor import ToolExecutorMiddleware
+from mentor.tools import ToolBundle, ToolSpec, get_tool_bundle
+from mentor.tools.specs import ToolRegistry
 from mentor.utils.create_model import create_model
 
 logger = logging.getLogger(__name__)
@@ -58,40 +61,70 @@ class AgentFactory(ABC):
 
     async def _get_mcp_tools(
         self, mcp_name: str, mcp_config: MCPServerConfig
-    ) -> Sequence[BaseTool]:
-        """连接单个 MCP server 并过滤禁用工具。
+    ) -> list[ToolSpec]:
+        """连接单个 MCP server，过滤禁用/未授权工具并生成 ToolSpec。
 
         只在编译新规格时调用；MCP 配置变化会改变 spec_hash，从而触发重新发现。
         """
+        connection: dict[str, Any] = {
+            "transport": "streamable_http",
+            "url": mcp_config.url,
+            "timeout": mcp_config.timeout_seconds,
+        }
+        if mcp_config.auth:
+            connection["headers"] = {"Authorization": mcp_config.auth}
         client = MultiServerMCPClient(
-            connections={
-                mcp_name: {
-                    "transport": "streamable_http",
-                    "url": mcp_config.url,
-                }
-            },
+            connections=cast(Any, {mcp_name: connection}),
             tool_name_prefix=True,
         )
         mcp_tools = await client.get_tools()
 
-        # 打开前缀后工具名形如 "<mcp_name>_<tool_name>"，禁用列表也必须使用同样的前缀。
-        disabled_tool_names = [
-            f"{mcp_name}_{name}" for name in mcp_config.disabled_tools
-        ]
-        return [tool for tool in mcp_tools if tool.name not in disabled_tool_names]
+        # 打开前缀后工具名形如 "<mcp_name>_<tool_name>"，白名单/禁用列表使用同样的前缀。
+        allowed = (
+            {f"{mcp_name}_{name}" for name in mcp_config.allowed_tools}
+            if mcp_config.allowed_tools
+            else None
+        )
+        disabled = {f"{mcp_name}_{name}" for name in mcp_config.disabled_tools}
+        specs: list[ToolSpec] = []
+        timeout_s = (
+            mcp_config.timeout_seconds
+            if mcp_config.timeout_seconds > 0
+            else 30
+        )
+        for tool in mcp_tools:
+            if tool.name in disabled:
+                continue
+            if allowed is not None and tool.name not in allowed:
+                continue
+            specs.append(
+                ToolSpec(
+                    name=tool.name,
+                    tool=tool,
+                    risk=mcp_config.risk,
+                    description=tool.description or "",
+                    exposure=mcp_config.exposure,
+                    timeout_s=timeout_s,
+                    source="mcp",
+                    server=mcp_name,
+                )
+            )
+        return specs
 
-    async def _get_tools(self, agent_config: AgentSpec) -> Sequence[BaseTool]:
-        """内置工具 + 所有 MCP 工具，统一在编译阶段装配。"""
-        tools = get_tools(agent_config.tools)
-        mcp_tool_groups = await asyncio.gather(
+    async def _get_tools(self, agent_config: AgentSpec) -> ToolBundle:
+        """内置工具 + 所有 MCP 工具，统一生成清单与直接暴露列表。"""
+        bundle = get_tool_bundle(agent_config.tools)
+        mcp_spec_groups = await asyncio.gather(
             *[
                 self._get_mcp_tools(mcp_name, mcp_config)
                 for mcp_name, mcp_config in agent_config.mcps.items()
             ]
         )
-        for mcp_tools in mcp_tool_groups:
-            tools.extend(mcp_tools)
-        return tools
+        for specs in mcp_spec_groups:
+            bundle.register_mcp_specs(specs)
+        # 有 deferred 工具时自动补 tool_search / call_tool。
+        bundle.add_deferred_tools()
+        return bundle
 
     async def _load_subagent_specs(
         self, names: list[str], label: str | None
@@ -177,12 +210,13 @@ class AgentFactory(ABC):
                 return cached
 
             model = self._get_model(agent_config)
-            tools = await self._get_tools(agent_config)
+            tool_bundle = await self._get_tools(agent_config)
             subagents = await self._build_subagents(subagent_specs, label)
             agent = await self.create_agent(
                 model=model,
                 system_prompt=agent_config.system_prompt,
-                tools=tools,
+                tools=tool_bundle.direct_tools,
+                tool_registry=tool_bundle.registry,
                 subagents=subagents,
                 skills=agent_config.skills,
                 spec_hash=spec_hash,
@@ -199,18 +233,27 @@ class AgentFactory(ABC):
         model: Any,
         system_prompt: str,
         tools: Sequence[BaseTool],
+        tool_registry: ToolRegistry,
         subagents: list[dict],
         skills: list[str],
         spec_hash: str,
     ) -> Runnable:
+        backend = self.get_backend()
+        middleware = list(self.get_middlewares())
+        # 所有工具调用先经过统一执行器，再做 sandbox 生命周期收尾。
+        middleware.append(ToolExecutorMiddleware(tool_registry))
+        if isinstance(backend, SandboxBackend):
+            # run 结束后关闭当前 (user, thread) 的沙箱连接；异常路径由 aexecute 兜底。
+            middleware.append(sandbox_lifecycle_middleware(backend))
+
         config = {
             "model": model,
             "system_prompt": system_prompt,
             "tools": tools,
             "state_schema": self.get_state_schema(),
             "subagents": self.get_subagents(subagents),
-            "middleware": self.get_middlewares(),
-            "backend": self.get_backend(),
+            "middleware": middleware,
+            "backend": backend,
         }
         if len(skills):
             # 技能已按内容版本落到共享卷；current 是指向可用版本的原子符号链接。

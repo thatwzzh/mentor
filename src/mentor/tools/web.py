@@ -6,8 +6,10 @@ from langchain.tools import tool
 from tavily import TavilyClient
 
 from mentor.config.tavily_settings import tavily_settings
+from mentor.tools.specs import register_tool
 
 
+@register_tool(risk="external", timeout_s=30)
 @tool
 async def web_search(query: str):
     """根据关键字进行网络搜索，返回结构化的搜索结果"""
@@ -17,6 +19,7 @@ async def web_search(query: str):
     return response
 
 
+@register_tool(risk="external", timeout_s=30)
 @tool
 async def fetch_url(urls: list[str]):
     """根据提供的url数组，抓取网页内容，返回结构化的搜索结果"""

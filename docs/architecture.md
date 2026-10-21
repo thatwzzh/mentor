@@ -4,6 +4,16 @@
 
 ![基础设施全貌](infrastructure-overview.jpg)
 
+## 0. 最近演进（2026-10）
+
+| 模块 | 当前实现 |
+|---|---|
+| Agent 工厂 | 按 `(agent_name, spec_hash)` 缓存编译图，每 Agent 保留 3 个版本；spec_hash 覆盖主/子 Agent 完整配置 |
+| 配置 | 四层合并：Pydantic defaults < `.env` < Nacos < request override；`NACOS_LABEL` 支持 production/staging |
+| 配置校验 | `mentor config schema` / `validate` / `doctor`；`make dev-check` 先体检再启动 |
+| 沙箱 | 一次 run 内按 `(user, thread)` 复用连接；Agent 结束关闭；PVC 名 `tenant-sha256(user)[:12]`；支持资源/网络策略与空闲回收 |
+| 工具 | `ToolSpec` + `ToolRegistry` + `ToolExecutor`；所有工具统一限时/截断/错误分类；MCP 默认 deferred |
+
 ## 1. 一句话定位
 
 Mentor 是一个以 **LangGraph / DeepAgents** 为运行时的 Agent 服务：
@@ -78,17 +88,21 @@ Nacos agentspecs
   └─ link_prompts → Nacos Prompt 模板 → 追加到 system_prompt
 
 Nacos Prompt / MCP / Skill
-  └─ AgentFactory._get_tools / _get_subagents / save_skills
+  ├─ Prompt：get_prompt 按 label 读取
+  ├─ MCP：管理端全局配置，不随 label 切换
+  └─ Skill：下载仍固定 production（当前边界）
 
-Nacos sandbox_config（YAML）
-  └─ SandboxBackend.aexecute → OpenSandbox.create(image, timeout, volumes)
+Nacos sandbox_config（YAML，必须存在）
+  └─ SandboxBackend._get_or_create_sandbox → OpenSandbox.create(image, timeout, resource, network_policy, volumes)
 ```
 
 要点：
 
-- Agent 规格按 `label=production` 读取，`NACOS_TTL` 控制本地缓存时间。
+- Agent 规格和 Prompt 按 `NACOS_LABEL` 读取（默认 `production`；staging 需在 Nacos 发布对应标签）。
+- MCP 仍是管理端全局配置，不随 label 切换；Skill 下载仍固定 `production`，staging 技能尚未支持。
+- 配置按四层合并：Pydantic defaults < `.env` < Nacos < 单次 run 的 `agent_spec_override`；override 不写回 Nacos。
+- `sandbox_config` 不再有“缺失即默认值”的兜底；缺失或非法会明确报错，`mentor config doctor` 会失败。
 - Skill 包由共享沙箱下载并按内容哈希落到 `/shared/skills/<agent_name>/<version>/`，`current` 符号链接原子指向可用版本；用户沙箱以只读方式挂载 `/shared`。
-- `sandbox_config` 不直接发给 OpenSandbox；它是 Agent 创建沙箱时的参数来源。
 
 ### 4.2 执行链路：Agent → OpenSandbox → MinIO
 
@@ -96,21 +110,45 @@ Nacos sandbox_config（YAML）
 用户请求
   → Agent（模型决定调用 execute / write_file / deploy 等工具）
     → SandboxBackend
-      → enter_sandbox（按用户复用沙箱）
+      → _get_or_create_sandbox（按 user + thread 复用连接）
         → OpenSandbox Server
           → 沙箱容器
             ├─ 普通文件：/root/workspace（用户级 PVC，持久）
             └─ deploy：沙箱内脚本直传 MinIO
                 → agent-artifacts/<user_id>/<target_dirname>/
                 → 宿主生成预签名 URL（默认 1 小时有效）
+      → after_agent / sandbox_lifecycle 关闭当前 run 的连接
 ```
 
 要点：
 
-- `/root` 是用户持久工作区，沙箱销毁后 PVC 保留。
+- 一次 run 内，`SandboxBackend` 按 `(user_id, thread_id)` 缓存连接；同一 thread 的 10 个并发工具调用只创建/连接一个 sandbox。
+- Agent 正常结束由 `sandbox_lifecycle` 中间件关闭连接；命令通道异常时 `aexecute` 会丢弃坏连接，避免被后续工具复用。
+- `/root` 是用户持久工作区，PVC 名为 `"<tenant>-<sha256(user_id)[:12]>"`；沙箱销毁后 PVC 保留。
 - `/shared` 是只读共享卷，存放 Skill 与跨用户复用的依赖。
-- 部署工具在沙箱内执行上传，产物不经过 Agent 进程，避免大文件搬运。
+- 部署工具在沙箱内执行上传，产物不经过 Agent 进程；`deploy` 自己创建 backend，用完在 `finally` 中关闭。
 - 目录部署是「先清空目标目录、再递归上传」，不是原子操作；失败时可能留下半成品。
+- `sandbox_config` 可配置 CPU/内存、出口网络策略和超时；未配置时使用 OpenSandbox 默认值。
+
+### 4.2.1 工具执行链：Agent → ToolExecutor → 工具
+
+```text
+Agent 工具调用
+  → ToolExecutorMiddleware（覆盖内置 / 业务 / MCP）
+    → ToolSpec：risk / exposure / timeout_s / max_output_chars
+      → ToolExecutor
+        → 执行工具
+          → content：可读预览
+          → artifact：{ok, data, error_kind, truncated, artifacts, duration_ms}
+```
+
+要点：
+
+- 业务工具用 `@register_tool(risk=..., timeout_s=...)` 登记；Nacos `tools` 白名单决定是否装配。
+- 错误统一分类：`input` / `policy` / `timeout` / `system`；前三种回给模型，`system` 终止 run。
+- 输出超过 `max_output_chars`（默认 8000）时落盘到 `TOOL_ARTIFACT_DIR`，返回 `artifact://`；`read_artifact` 自动暴露。
+- MCP 默认 `deferred`：不直接进 prompt；模型先 `tool_search`，再 `call_tool`。需要旧行为时配置 `exposure: direct`。
+- MCP server 可声明 `auth`、`timeout_seconds`、`allowed_tools`、`exposure`、`risk`；`auth` 属于敏感配置。
 
 ### 4.3 模型链路：Agent → LiteLLM → 模型提供方
 
@@ -124,7 +162,7 @@ Agent
 要点：
 
 - 所有模型请求都应经过 LiteLLM，Agent 不直接持有各厂商密钥。
-- Agent 会把 `thread_id` 写入 `x-litellm-session-id`，供网关做会话亲和与消费归集。
+- `x-litellm-session-id` 由 `ReasoningChatModel` 在每次请求构造 payload 时从 ContextVar 注入，供网关做会话亲和与消费归集；图本身跨请求缓存，不会固定首个 thread 的 header。
 - `ReasoningChatModel` 负责把 `reasoning_content` 提取为 content block，便于 Studio / Langfuse 展示思维链。
 - LiteLLM 的 `litellm-config.yaml` 当前只开启 `session_affinity` 预检查，模型路由可在 LiteLLM 管理后台配置。
 - 现状：Agent 侧通过 Langfuse `CallbackHandler` 上报 trace；LiteLLM 侧若要单独上报，需要在网关配置 `LANGFUSE_*` 凭据，当前 Compose 未注入这些变量。
@@ -185,10 +223,14 @@ make docker-recreate
 # 3. 首次使用或修改 Dockerfile 后，构建沙箱镜像
 docker build -t opensandbox-python-node:1.0 -f docker/sandbox/Dockerfile .
 
-# 4. 启动 Agent
+# 4. 启动前体检：Nacos、AgentSpec 必填项、模型网关、MinIO 桶、sandbox_config
+uv run mentor config doctor
+# 或：make dev-check（先 doctor，再启动）
+
+# 5. 启动 Agent
 make dev
 
-# 5. 可选：跑一次评测
+# 6. 可选：跑一次评测
 make test-benchmark DS=all
 ```
 
@@ -222,12 +264,18 @@ docker compose up -d shared-minio
 | `NACOS_SERVER_ADDRESS_IN_SANDBOX` | 沙箱内访问 Nacos 的地址，通常是 `http://host.docker.internal:8848` |
 | `NACOS_NAMESPACE_ID` | Nacos 命名空间 |
 | `NACOS_TTL` | Agent 规格 / Prompt / MCP 的本地缓存秒数 |
+| `NACOS_LABEL` | AgentSpec/Prompt 的发布标签：`production` / `staging` |
 | `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | MinIO 凭据；建议使用服务账号，不要长期使用 root |
 | `MINIO_ENDPOINT` | 宿主机访问 MinIO 的地址 |
 | `MINIO_ENDPOINT_IN_SANDBOX` | 沙箱内访问 MinIO 的地址 |
+| `MINIO_BUCKET` | 产物桶名，默认 `agent-artifacts` |
 | `MINIO_PRESIGN_EXPIRE_SECONDS` | 产物预签名 URL 的有效期，默认 3600 秒 |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_DEFAULT_MODEL` | LiteLLM 上游模型配置 |
 | `OPEN_SANDBOX_DOMAIN` / `OPEN_SANDBOX_API_KEY` | OpenSandbox Server 连接配置 |
+| `OPEN_SANDBOX_TENANT` | PVC 名称前缀，默认 `default` |
+| `OPEN_SANDBOX_ALLOW_MEMORY_STORE` | 仅本地脚本可设为 true；生产禁止 InMemoryStore 回落 |
+| `OPEN_SANDBOX_IDLE_TIMEOUT_SECONDS` | 进程内空闲沙箱回收时间，默认 1800 秒；0 表示交给 OpenSandbox TTL |
+| `TOOL_ARTIFACT_DIR` | 工具超长输出落盘目录；生产建议持久卷 + 权限限制 |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 连接配置 |
 | `LANGFUSE_TRACE_RETENTION_DAYS` | Trace 保留天数，供清理任务使用 |
 | `BENCHMARK_AGENT_SERVER` / `BENCHMARK_USER_ID` / `BENCHMARK_GRAPH_ID` | 评测任务连接 Agent 的参数 |
@@ -279,6 +327,15 @@ docker compose up -d shared-minio
 - Agent 鉴权当前使用 `MOCK_USER` 明文 token，仅适合本地开发；生产需要接 OIDC/JWT。
 - OpenSandbox 依赖宿主 Docker socket，适合单机/受控环境；多租户生产环境应换成独立沙箱集群或 microVM。
 - Langfuse 自托管栈较重（ClickHouse + PostgreSQL + Redis + MinIO），本地开发可按需启动。
+- `SandboxBackend` 的 run 级缓存是进程内缓存；多 worker 部署时每个进程各自缓存，不会跨进程共享连接。
+- PVC 名从旧的 `user_id.replace("_", "-")` 改为 `tenant-sha256(user_id)[:12]`；升级后旧 PVC 不会自动挂载，迁移时需保留旧 PVC 或复制 `/root` 数据。
+- `get_sandbox` 生产默认禁止 `InMemoryStore` 回落；本地脚本需要显式设置 `OPEN_SANDBOX_ALLOW_MEMORY_STORE=true`。
+- MCP 是 Nacos 管理端全局配置，不随 `NACOS_LABEL` 切换；Skill 下载仍固定 `production`，staging 技能尚未支持。
+- 目录部署仍是「先清空、再上传」，不是原子替换；上传失败可能留下半成品。
+- 工具 artifact 目录是进程本地目录，多 worker 不共享；生产需持久卷并限制权限。
+- MCP 默认 `deferred`，模型需要先 `tool_search` 再 `call_tool`；旧行为需显式 `exposure: direct`。
+- MCP `auth` 会存入 Nacos，属于敏感信息；生产应从密钥管理注入。
+- 多账号/多租户上线前必须完成真实鉴权、Assistants owner 过滤、MinIO 凭据隔离、LiteLLM 配额等改造；完整清单见 [multi-account-hardening.md](multi-account-hardening.md)。
 
 ## 9. 一个具体请求的完整路径
 
@@ -287,7 +344,7 @@ docker compose up -d shared-minio
 1. 用户在 Agent API 发起对话。
 2. Agent 从 Nacos 读取 `main_agent` 的 Prompt、工具白名单与 Skill。
 3. Agent 通过 LiteLLM 请求模型；模型决定调用 `execute` / `write_file` / `deploy`。
-4. `SandboxBackend` 找到该用户的沙箱（没有则创建），在 `/root/workspace` 中构建网页。
-5. `deploy` 在沙箱内把 `dist/` 上传到 MinIO 的 `agent-artifacts/<user>/<project>/`，宿主生成预签名 URL 并返回。
+4. `SandboxBackend` 按 `(user_id, thread_id)` 复用沙箱连接（没有则创建），在 `/root/workspace` 中构建网页；run 结束由 `sandbox_lifecycle` 关闭连接。
+5. `deploy` 在沙箱内把 `dist/` 上传到 MinIO 的 `agent-artifacts/<user>/<project>/`，宿主生成预签名 URL 并返回；deploy 自己的 backend 在 `finally` 中关闭。
 6. 全过程的模型调用、工具调用与耗时写入 Langfuse trace。
 7. 开发者在 Langfuse 查看 trace，必要时调整 Nacos 中的 Prompt 或 Agent 规格；下一轮请求自动生效。

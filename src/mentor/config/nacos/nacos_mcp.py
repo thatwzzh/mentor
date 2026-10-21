@@ -38,8 +38,23 @@ async def get_mcp_config(mcp_name: str) -> MCPServerConfig | None:
     disabled_tools = [
         name for name, value in tools_meta.items() if not value.get("enabled", True)
     ]
+    allowed_tools = response.get("allowedTools") or []
+    auth = response.get("auth")
+    if isinstance(auth, dict):
+        # 兼容 Nacos 把 auth 配成 {"token": "..."} 的写法。
+        auth = auth.get("token") or auth.get("value")
     return MCPServerConfig.model_validate(
-        {"url": url, "disabled_tools": disabled_tools, "name": mcp_name}
+        {
+            "url": url,
+            "disabled_tools": disabled_tools,
+            "name": mcp_name,
+            # 以下字段 Nacos 旧版本可能不返回，使用模型默认值即可。
+            "auth": auth,
+            "timeout_seconds": response.get("timeoutSeconds", 30),
+            "allowed_tools": allowed_tools,
+            "exposure": response.get("exposure", "deferred"),
+            "risk": response.get("risk", "external"),
+        }
     )
 
 

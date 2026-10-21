@@ -6,7 +6,7 @@ from langgraph.runtime import get_runtime
 from langgraph.store.memory import InMemoryStore
 from weakref import WeakValueDictionary
 from opensandbox import Sandbox
-from opensandbox.models import PVC, Volume
+from opensandbox.models import NetworkPolicy, NetworkRule, PVC, Volume
 from mentor.config.nacos.nacos_schemas import OpenSandboxConfig
 from mentor.config.nacos.nacos_config import get_config
 from datetime import timedelta
@@ -14,8 +14,11 @@ from opensandbox.config import ConnectionConfig
 from opensandbox.exceptions import SandboxApiException
 from mentor.config.sandbox_settings import sandbox_settings
 from pydantic import BaseModel, Field
+import logging
 import uuid
 import asyncio
+
+_logger = logging.getLogger(__name__)
 
 _MEMORY_STORE = InMemoryStore()
 
@@ -65,6 +68,21 @@ async def _create(
         )
         for v in volume_configs
     ]
+    resource: dict[str, str] = {}
+    if sandbox_config.cpu:
+        resource["cpu"] = sandbox_config.cpu
+    if sandbox_config.memory:
+        resource["memory"] = sandbox_config.memory
+    network_policy = None
+    if sandbox_config.network_default_action is not None:
+        # egress 规则按顺序匹配；未命中时走 default_action。
+        network_policy = NetworkPolicy(
+            defaultAction=sandbox_config.network_default_action,
+            egress=[
+                NetworkRule(action="allow", target=target)
+                for target in sandbox_config.network_allow
+            ],
+        )
     sandbox = await Sandbox.create(
         image=sandbox_config.image,
         # 连接沙箱Server的配置
@@ -75,6 +93,9 @@ async def _create(
         ready_timeout=timedelta(seconds=sandbox_config.ready_timeout_seconds),
         # 挂载卷柜
         volumes=volumes,
+        # 资源配额与出口策略；未配置时保持服务端默认。
+        resource=resource or None,
+        network_policy=network_policy,
     )
     await store.aput(_NAMESPACE, key, {"sandbox_id": sandbox.id})
     return sandbox
@@ -112,13 +133,19 @@ async def get_sandbox(
     if key is None:
         key = str(uuid.uuid4())
     if store is None:
-        # 优先用 LangGraph runtime 的持久 Store；脱离图上下文（如脚本/测试）时才退回内存 Store。
+        # 生产必须使用 LangGraph runtime 的持久 Store；内存 Store 只在本地脚本显式开启。
         try:
             runtime = get_runtime()
             store = runtime.store
-            if store is None:
-                store = _MEMORY_STORE
-        except:
+        except Exception:
+            store = None
+        if store is None:
+            if not sandbox_settings.allow_memory_store:
+                raise RuntimeError(
+                    "运行时未提供持久 Store，禁止回落到 InMemoryStore；"
+                    "本地脚本可设置 OPEN_SANDBOX_ALLOW_MEMORY_STORE=true"
+                )
+            _logger.warning("使用 InMemoryStore 记录 sandbox_id；仅限本地开发/测试")
             store = _MEMORY_STORE
     sandbox_config = await get_config("sandbox_config", OpenSandboxConfig)
     connection_config = ConnectionConfig(
@@ -161,10 +188,15 @@ async def enter_sandbox(
     volume_configs: list[VolumeConfig] | None = None,
 ):
     sandbox = await get_sandbox(key, store, volume_configs)
-    config = await get_config("sandbox_config", OpenSandboxConfig)
-    # 进入前续租一次，避免拿到一个即将到期的沙箱；退出时再续租，给后续调用留出时间。
-    # 注意：当前没有 try/finally，with 块内抛异常时下面的续租与 close 不会执行。
-    await sandbox.renew(timedelta(seconds=config.timeout_seconds))
-    yield sandbox
-    await sandbox.renew(timedelta(seconds=config.timeout_seconds))
-    await sandbox.close()  # 关闭沙箱连接
+    config: OpenSandboxConfig | None = None
+    # 进入前续租一次；无论 with 块正常退出还是抛异常，都要续租并关闭连接。
+    try:
+        config = await get_config("sandbox_config", OpenSandboxConfig)
+        await sandbox.renew(timedelta(seconds=config.timeout_seconds))
+        yield sandbox
+    finally:
+        try:
+            if config is not None:
+                await sandbox.renew(timedelta(seconds=config.timeout_seconds))
+        finally:
+            await sandbox.close()  # 关闭沙箱连接

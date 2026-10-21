@@ -9,6 +9,7 @@ from pydantic import SecretStr
 from mentor.agents import agent_factory as agent_factory_module
 from mentor.agents.agent_cache import AgentCache
 from mentor.agents.agent_factory import AgentFactory
+from mentor.tools import get_tool_bundle
 from mentor.agents.subagent_registry import get_subagent_factory
 from mentor.config.nacos.nacos_schemas import AgentSpec
 from mentor.utils.reasoning_chat_model import ReasoningChatModel
@@ -31,7 +32,7 @@ class DummyFactory(AgentFactory):
         return None
 
     async def _get_tools(self, agent_config: AgentSpec):
-        return []
+        return get_tool_bundle([])
 
     async def create_agent(
         self,
@@ -39,6 +40,7 @@ class DummyFactory(AgentFactory):
         model,
         system_prompt: str,
         tools,
+        tool_registry,
         subagents,
         skills,
         spec_hash: str,

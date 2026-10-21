@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from mentor.backends.sandbox_backend import SandboxBackend
 from mentor.config.minio_settings import minio_settings
+from mentor.tools.specs import register_tool
 from mentor.utils.minio import MinIO
 from mentor.utils.shared import get_user_id
 
@@ -171,6 +172,7 @@ class DeployOutput(TypedDict):
     urls: list[str]
 
 
+@register_tool(risk="destructive", timeout_s=300)
 @tool(args_schema=DeployInput)
 async def deploy(
     path: str, target_dirname: str, entry_files: list[str]
@@ -309,6 +311,9 @@ async def deploy(
         execution = await backend.aexecute(command)
     except Exception as exc:
         raise RuntimeError(f"沙箱部署命令执行失败: {redact(str(exc))}") from None
+    finally:
+        # deploy 自己创建 backend，不在 Agent 生命周期中间件里；用完立即释放连接。
+        await backend.aclose_run()
     if execution.exit_code != 0 or execution.truncated:
         raise RuntimeError(
             f"沙箱部署命令未正常完成（退出码 {execution.exit_code}）: "

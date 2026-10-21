@@ -1,11 +1,15 @@
-"""主 Agent 的扩展状态：在 DeepAgentState 上增加回合摘要字段。"""
+"""主 Agent 的扩展状态：只保留历史摘要与产物列表。
 
-from typing import Any
+完整消息历史由 run_events 承担；checkpoint 不再复制全量 UI 摘要。
+"""
+
+from typing import NotRequired
 
 from deepagents import DeepAgentState
 
 
 class MainAgentState(DeepAgentState):
-    # 前端按回合渲染用的可见消息摘要，由 turn_summary 中间件写入；
-    # 它不替代 checkpoint，也不参与模型上下文。
-    turn_summary: list[Any]
+    # 滚动历史摘要；由 run_projection 在 after_agent 中更新。
+    history_summary: NotRequired[str]
+    # 仍需快速访问的产物引用；完整内容在 run_events / artifact 存储。
+    artifacts: NotRequired[list[str]]

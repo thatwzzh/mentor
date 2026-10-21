@@ -13,6 +13,7 @@
 | 配置校验 | `mentor config schema` / `validate` / `doctor`；`make dev-check` 先体检再启动 |
 | 沙箱 | 一次 run 内按 `(user, thread)` 复用连接；Agent 结束关闭；PVC 名 `tenant-sha256(user)[:12]`；支持资源/网络策略与空闲回收 |
 | 工具 | `ToolSpec` + `ToolRegistry` + `ToolExecutor`；所有工具统一限时/截断/错误分类；MCP 默认 deferred |
+| 会话 | `run_events` 事件表 + `run_projection`；checkpoint 只留最近 10 轮 + 历史摘要 + 产物列表；`GET /runs/{id}/summary` 投影 |
 
 ## 1. 一句话定位
 
@@ -150,6 +151,25 @@ Agent 工具调用
 - MCP 默认 `deferred`：不直接进 prompt；模型先 `tool_search`，再 `call_tool`。需要旧行为时配置 `exposure: direct`。
 - MCP server 可声明 `auth`、`timeout_seconds`、`allowed_tools`、`exposure`、`risk`；`auth` 属于敏感配置。
 
+### 4.2.2 会话投影：checkpoint 最小化
+
+```text
+Agent 结束
+  → run_projection（after_agent）
+    → project_messages_to_events → run_events（Postgres）
+    → project_state：最近 10 轮 + 历史摘要 + 产物列表
+    → messages 用 REMOVE_ALL_MESSAGES + 修剪后的消息替换
+GET /runs/{run_id}/summary?after_seq=0
+  → 按 user 过滤 → RunSummary（message/tool/approval/artifact/compression）
+```
+
+要点：
+
+- `turn_summary` 不再写 state；UI 摘要由接口从事件表计算。
+- 工具输出全文留在 run_events；checkpoint 里只保留 500 字符预览，100 轮会话可控。
+- 压缩事件记录 `before_tokens / after_tokens / kept_messages / summary_hash`。
+- 事件表使用 Postgres（`mentor-postgres`）；接口按 Bearer 身份过滤，`after_seq` 支持重放。
+
 ### 4.3 模型链路：Agent → LiteLLM → 模型提供方
 
 ```
@@ -202,6 +222,7 @@ Langfuse Alert
 │  ├─ LiteLLM（:4000） + PostgreSQL + Redis
 │  ├─ Langfuse（:3000） + PostgreSQL + Redis + ClickHouse + MinIO
 │  ├─ OpenSandbox Server（127.0.0.1:8090）
+│  ├─ Mentor Postgres（127.0.0.1:5433）
 │  └─ Shared MinIO（:9002 / :9003）
 └─ OpenSandbox 动态创建的沙箱容器（bridge 网络）
 ```
@@ -251,6 +272,7 @@ docker compose up -d shared-minio
 | LiteLLM UI | http://localhost:4000/ui/ | 模型与密钥管理 |
 | LiteLLM API | http://localhost:4000/v1 | OpenAI 兼容接口 |
 | OpenSandbox API | http://127.0.0.1:8090/docs | 沙箱管理 |
+| Mentor Postgres | 127.0.0.1:5433 | run_events 事件表 |
 | Shared MinIO API | http://localhost:9002 | 产物读写 |
 | Shared MinIO 控制台 | http://localhost:9003 | 桶与对象管理 |
 | Langfuse Web | http://localhost:3000 | Trace / Dataset / Experiment |
@@ -276,6 +298,10 @@ docker compose up -d shared-minio
 | `OPEN_SANDBOX_ALLOW_MEMORY_STORE` | 仅本地脚本可设为 true；生产禁止 InMemoryStore 回落 |
 | `OPEN_SANDBOX_IDLE_TIMEOUT_SECONDS` | 进程内空闲沙箱回收时间，默认 1800 秒；0 表示交给 OpenSandbox TTL |
 | `TOOL_ARTIFACT_DIR` | 工具超长输出落盘目录；生产建议持久卷 + 权限限制 |
+| `RUN_EVENTS_DSN` | Run 事件表 Postgres 连接串，默认 `postgresql://mentor:mentor@127.0.0.1:5433/mentor` |
+| `MENTOR_POSTGRES_PASSWORD` | `mentor-postgres` 密码，默认 `mentor` |
+| `RUN_EVENTS_KEEP_LAST_TURNS` | checkpoint 保留最近轮数，默认 10 |
+| `RUN_EVENTS_MAX_TOOL_CHARS` | 保留轮次中的工具输出上限，默认 500 |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 连接配置 |
 | `LANGFUSE_TRACE_RETENTION_DAYS` | Trace 保留天数，供清理任务使用 |
 | `BENCHMARK_AGENT_SERVER` / `BENCHMARK_USER_ID` / `BENCHMARK_GRAPH_ID` | 评测任务连接 Agent 的参数 |
@@ -335,7 +361,10 @@ docker compose up -d shared-minio
 - 工具 artifact 目录是进程本地目录，多 worker 不共享；生产需持久卷并限制权限。
 - MCP 默认 `deferred`，模型需要先 `tool_search` 再 `call_tool`；旧行为需显式 `exposure: direct`。
 - MCP `auth` 会存入 Nacos，属于敏感信息；生产应从密钥管理注入。
-- 多账号/多租户上线前必须完成真实鉴权、Assistants owner 过滤、MinIO 凭据隔离、LiteLLM 配额等改造；完整清单见 [multi-account-hardening.md](multi-account-hardening.md)。
+- `run_events` 使用 Postgres；多 worker 共享同一 DSN，事件表需按保留策略清理。
+- `run_id` 优先取 LangGraph config；缺失时回退 thread_id，多 run 共用 thread 时事件会合并。
+- 旧前端读取 state `turn_summary` 的，需要迁移到 `RunSummary`。
+- 多账号/多租户上线前必须完成真实鉴权、Assistants owner 过滤、MinIO 凭据隔离、LiteLLM 配额等改造；完整清单见 [multi-account-hardening.md](multi-account-hardening.md)；4.2.5/4.2.7 的上线前待办见 [prelaunch-backlog.md](prelaunch-backlog.md)。
 
 ## 9. 一个具体请求的完整路径
 

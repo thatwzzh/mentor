@@ -1,13 +1,13 @@
 """主 Agent 定义：在通用工厂上挂载主 Agent 的 state 与中间件。"""
 
 from collections.abc import Sequence
-from typing import Any
-from langchain.agents.middleware import AgentMiddleware, AgentState
+from typing import Any, cast
+from langchain.agents.middleware import AgentMiddleware
 from deepagents import DeepAgentState
 
 from mentor.utils.trace_wrapper import trace_wrapper
 from mentor.agents.main_agent_state import MainAgentState
-from mentor.middlewares.turn_summary import turn_summary
+from mentor.middlewares.run_projection import run_projection
 from mentor.agents.agent_factory import AgentFactory
 
 
@@ -17,12 +17,12 @@ class MainAgentFactory(AgentFactory):
         return "main_agent"
 
     def get_state_schema(self) -> type[DeepAgentState] | None:
-        # 主 Agent 在 DeepAgentState 上多一个 turn_summary 字段，供前端按回合渲染。
+        # 主 Agent 在 DeepAgentState 上增加历史摘要与产物列表；UI 摘要走 run_events。
         return MainAgentState
 
-    def get_middlewares(self) -> Sequence[AgentMiddleware[AgentState[Any], None, Any]]:
-        # 只挂回合摘要；压缩、工具等能力由 DeepAgents 默认中间件负责。
-        return [turn_summary]
+    def get_middlewares(self) -> Sequence[AgentMiddleware]:
+        # run_projection 写事件表并修剪 checkpoint；工具/沙箱中间件由基类追加。
+        return [cast(AgentMiddleware, run_projection)]
 
 
 main_agent_factory = MainAgentFactory()

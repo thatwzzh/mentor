@@ -2,7 +2,7 @@
 
 基于 LangGraph / DeepAgents 的 Agent 服务：Nacos 管理运行时配置，OpenSandbox 提供隔离执行环境，LiteLLM 统一模型网关，MinIO 保存运行时文件与产物，Langfuse 负责观测与评估。
 
-完整架构说明见 [docs/architecture.md](docs/architecture.md)；开发、配置、沙箱与发布 runbook 见 [docs/project-guide.md](docs/project-guide.md)；多账号/多租户上线改造清单见 [docs/multi-account-hardening.md](docs/multi-account-hardening.md)。
+完整架构说明见 [docs/architecture.md](docs/architecture.md)；开发、配置、沙箱与发布 runbook 见 [docs/project-guide.md](docs/project-guide.md)；多账号/多租户上线改造清单见 [docs/multi-account-hardening.md](docs/multi-account-hardening.md)；4.2.5/4.2.7 上线前待办见 [docs/prelaunch-backlog.md](docs/prelaunch-backlog.md)。
 
 ## 启动服务
 
@@ -45,6 +45,10 @@ make dev-check
 工具层：所有工具经过统一 `ToolExecutor`；超过 8KB 的输出落到 `TOOL_ARTIFACT_DIR` 并返回
 `artifact://` 引用。MCP 工具默认 `deferred`，模型通过 `tool_search` / `call_tool` 使用；
 需要旧行为时在 MCP server 配置里设 `exposure: direct`。
+
+会话层：`turn_summary` 已改为 `run_events` 投影；`GET /runs/{run_id}/summary?after_seq=0`
+返回前端卡片/审计共用的事件。checkpoint 只保留最近 10 轮 + 历史摘要 + 产物列表，
+事件表使用 Postgres（compose 的 `mentor-postgres`，默认 `RUN_EVENTS_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor`）。
 
 ## 服务说明
 

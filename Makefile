@@ -1,6 +1,6 @@
 DS ?= all
 
-.PHONY: docker-recreate build dev debug dev-check course course-push test-benchmark test-units test-integrations config-schema config-doctor
+.PHONY: docker-recreate build dev debug dev-check course course-push test-benchmark test-units test-integrations config-schema config-doctor test-run-events
 
 docker-recreate:
 	docker compose up -d --force-recreate
@@ -32,3 +32,6 @@ config-schema:
 
 config-doctor:
 	uv run mentor config doctor
+
+test-run-events:
+	RUN_EVENTS_POSTGRES_DSN=$${RUN_EVENTS_DSN:-postgresql://mentor:mentor@127.0.0.1:5433/mentor} uv run pytest -q tests/intergrations/test_run_events_postgres.py

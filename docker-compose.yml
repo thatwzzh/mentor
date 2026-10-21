@@ -147,6 +147,26 @@ services:
       # 数据保存到卷柜 langfuse_postgres_data（必须在volumes中有声明）
       - langfuse_postgres_data:/var/lib/postgresql/data
 
+  # mentor 会话投影事件库；与 Langfuse/LiteLLM 的 Postgres 隔离，避免互相影响。
+  mentor-postgres:
+    image: docker.io/postgres:17
+    restart: always
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      POSTGRES_USER: mentor
+      POSTGRES_PASSWORD: ${MENTOR_POSTGRES_PASSWORD:-mentor}
+      POSTGRES_DB: mentor
+      TZ: Asia/Shanghai
+      PGTZ: Asia/Shanghai
+    volumes:
+      - mentor_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mentor -d mentor"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
   litellm:
     image: litellm/litellm-database:v1.101.0
     restart: always
@@ -271,6 +291,7 @@ volumes:
   langfuse_minio_data:
   langfuse_redis_data:
   langfuse_postgres_data:
+  mentor_postgres_data:
   litellm_postgres_data:
   litellm_redis_data:
   nacos_data:

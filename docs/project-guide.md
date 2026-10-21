@@ -50,7 +50,7 @@ src/mentor/
 │  ├─ agent_factory.py        # Nacos 规格 → 模型/工具/子 Agent/图；spec_hash 缓存
 │  ├─ agent_cache.py          # (agent, spec_hash) LRU；每 Agent 默认 3 个版本
 │  ├─ subagent_registry.py    # @register_subagent 注册表
-│  ├─ main.py                 # 主 Agent：MainAgentState + turn_summary
+│  ├─ main.py                 # 主 Agent：MainAgentState + run_projection
 │  └─ web.py                  # web_agent 子 Agent
 ├─ backends/
 │  └─ sandbox_backend.py      # 文件/命令/删除 → OpenSandbox；run 级连接缓存
@@ -63,7 +63,12 @@ src/mentor/
 ├─ middlewares/
 │  ├─ turn_summary.py         # 前端可见消息摘要
 │  ├─ sandbox_lifecycle.py    # after_agent 关闭当前 run 的沙箱连接
-│  └─ tool_executor.py        # 所有工具调用接入统一执行器
+│  ├─ tool_executor.py        # 所有工具调用接入统一执行器
+│  └─ run_projection.py       # 写 run_events + 修剪 checkpoint
+├─ events/
+│  ├─ models.py               # RunEvent / RunSummary 前端契约
+│  ├─ store.py                # Postgres 事件表（测试用 InMemory）
+│  └─ projection.py           # 消息→事件、checkpoint 修剪
 ├─ security/auth.py           # LangGraph 鉴权（当前为 MOCK_USER）
 ├─ tools/
 │  ├─ specs.py                # ToolSpec / @register_tool / 风险与暴露级别
@@ -127,6 +132,24 @@ Agent 工具调用
 - 超过 `max_output_chars`（默认 8000）的输出落到 `TOOL_ARTIFACT_DIR`，`content` 返回预览，`artifacts` 返回 `artifact://`；`read_artifact` 自动可用。
 - MCP 默认 `deferred`：不直接进 prompt，模型先 `tool_search`，再 `call_tool(name, arguments)`；如要旧行为，把 server 配成 `exposure: direct`。
 - MCP server 可声明 `auth`、`timeout_seconds`、`allowed_tools`、`exposure`、`risk`；`auth` 建议从密钥管理注入，不要提交到仓库。
+
+### 4.2 会话投影：checkpoint 最小化
+
+```text
+Agent 结束
+  → run_projection（after_agent）
+    → project_messages_to_events → run_events 表
+    → project_state：最近 10 轮 + 历史摘要 + 产物列表
+    → checkpoint 替换为修剪后的 messages
+GET /runs/{run_id}/summary?after_seq=0
+  → 按 user 过滤事件 → RunSummary（前端卡片/审计）
+```
+
+- `turn_summary` 不再写 state；UI 摘要由 `GET /runs/{run_id}/summary` 从 `run_events` 计算。
+- checkpoint 只保留最近 `RUN_EVENTS_KEEP_LAST_TURNS`（默认 10）轮；旧轮次进入 `history_summary`，工具输出全文留在事件表。
+- 压缩日志记录 `before_tokens / after_tokens / kept_messages / summary_hash`；token 用量取自消息 usage metadata。
+- 事件类型：`message / tool_call / tool_result / approval / artifact / compression`，UI 工具卡、审批卡、产物卡共用同一契约。
+- 事件表使用 Postgres（`mentor-postgres`）；`after_seq` 支持增量重放，测试使用 `InMemoryRunEventStore`。
 
 ## 5. 配置分层与灰度
 
@@ -205,6 +228,11 @@ deploy 自建 backend → finally aclose_run
 | `OPEN_SANDBOX_IDLE_TIMEOUT_SECONDS` | 空闲连接回收时间 |
 | `LANGFUSE_*` | Trace / Dataset / Webhook |
 | `TOOL_ARTIFACT_DIR` | 工具超长输出落盘目录，默认 `/tmp/mentor-tool-artifacts`；生产建议挂持久卷并限制权限 |
+| `RUN_EVENTS_DSN` | Run 事件表 Postgres 连接串，默认 `postgresql://mentor:mentor@127.0.0.1:5433/mentor` |
+| `MENTOR_POSTGRES_PASSWORD` | compose 中 `mentor-postgres` 的密码，默认 `mentor` |
+| `RUN_EVENTS_KEEP_LAST_TURNS` | checkpoint 保留最近轮数，默认 10 |
+| `RUN_EVENTS_MAX_TOOL_CHARS` | 保留轮次中的工具输出上限，默认 500 |
+| `RUN_EVENTS_SUMMARY_MAX_CHARS` | 历史摘要上限，默认 4000 |
 
 ## 8. 测试与发布
 
@@ -219,6 +247,10 @@ deploy 自建 backend → finally aclose_run
 MINIO_INTEGRATION=1 DEPLOY_INTEGRATION=1 \
 DEPLOY_SANDBOX_IMAGE=opensandbox-python-node:1.0 \
 .venv/bin/pytest -q tests/intergrations/test_deploy.py
+
+# run_events Postgres 集成（需要 mentor-postgres）
+RUN_EVENTS_POSTGRES_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor \
+.venv/bin/pytest -q tests/intergrations/test_run_events_postgres.py
 ```
 
 发布：
@@ -240,6 +272,9 @@ DEPLOY_SANDBOX_IMAGE=opensandbox-python-node:1.0 \
 - MCP 默认 `deferred`，模型需要先调用 `tool_search` 再 `call_tool`；如果 MCP 工具必须直接暴露，在 server 配置里设 `exposure: direct`。
 - `ToolMessage.artifact` 保存结构化信封，`content` 是预览；依赖原始 `content` 的旧工具/前端需要适配。
 - MCP `auth` 会进入 Nacos 配置，属于敏感信息；生产应从密钥管理注入，不要写进 Git。
+- `run_events` 使用 Postgres；多 worker 共享同一 `RUN_EVENTS_DSN`，事件表要按保留策略清理。
+- `GET /runs/{id}/summary` 的 run_id 优先取 LangGraph config；缺失时回退 thread_id，多个 run 共用 thread 时会合并事件。
+- 旧前端若读取 state 的 `turn_summary`，需要迁移到 `/runs/{id}/summary` 的 `RunSummary`。
 
 ## 10. 上线前：多账号 / 多租户
 
@@ -248,5 +283,6 @@ DEPLOY_SANDBOX_IMAGE=opensandbox-python-node:1.0 \
 完整 P0/P1/P2 改造清单、风险矩阵、双用户验收用例与 Go/No-Go 条件见：
 
 - [多账号 / 多租户上线改造清单](multi-account-hardening.md)
+- [上线前待改动项 Backlog](prelaunch-backlog.md)（4.2.5 鉴权/多租户、4.2.7 观测/评测）
 
-上线前至少完成 P0-1 ~ P0-6，并通过双用户越权 E2E。
+上线前至少完成 P0-1 ~ P0-6，并通过双用户越权 E2E；4.2.7 指标与 golden 回归通过。

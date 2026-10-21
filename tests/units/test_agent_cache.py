@@ -85,7 +85,9 @@ def test_spec_hash_changes_with_prompt_and_subagent():
 def test_factory_reuses_compiled_graph_and_switches_versions(monkeypatch):
     spec = AgentSpec(name="dummy", system_prompt="v1")
 
-    async def fake_get_agent_spec(name: str) -> AgentSpec:
+    async def fake_get_agent_spec(
+        name: str, *, override: dict | None = None, label: str | None = None
+    ) -> AgentSpec:
         return spec
 
     async def fake_ensure_skills(name: str, skills: list[str]) -> None:
@@ -121,7 +123,9 @@ def test_factory_reuses_compiled_graph_and_switches_versions(monkeypatch):
 def test_factory_concurrent_requests_build_once(monkeypatch):
     spec = AgentSpec(name="dummy", system_prompt="v1")
 
-    async def fake_get_agent_spec(name: str) -> AgentSpec:
+    async def fake_get_agent_spec(
+        name: str, *, override: dict | None = None, label: str | None = None
+    ) -> AgentSpec:
         return spec
 
     async def fake_ensure_skills(name: str, skills: list[str]) -> None:

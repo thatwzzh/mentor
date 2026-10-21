@@ -93,25 +93,32 @@ class AgentFactory(ABC):
             tools.extend(mcp_tools)
         return tools
 
-    async def _load_subagent_specs(self, names: list[str]) -> list[AgentSpec]:
+    async def _load_subagent_specs(
+        self, names: list[str], label: str | None
+    ) -> list[AgentSpec]:
         """加载已注册子 Agent 的规格；未注册名称直接跳过。"""
         configured = [
             name for name in names if get_subagent_factory(name) is not None
         ]
         return list(
             await asyncio.gather(
-                *[get_agent_spec(agent_name) for agent_name in configured]
+                *[
+                    get_agent_spec(agent_name, label=label)
+                    for agent_name in configured
+                ]
             )
         )
 
-    async def _build_subagents(self, specs: list[AgentSpec]) -> list[dict]:
+    async def _build_subagents(
+        self, specs: list[AgentSpec], label: str | None
+    ) -> list[dict]:
         """把子 Agent 规格交给注册表里的工厂编译，返回 CompiledSubAgent 配置。"""
         subagents = []
         for spec in specs:
             factory = get_subagent_factory(spec.name)
             if factory is None:
                 continue
-            runnable = await factory()
+            runnable = await factory(label=label)
             subagents.append(
                 {
                     "name": spec.name,
@@ -138,13 +145,24 @@ class AgentFactory(ABC):
         )
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-    async def factory(self) -> Runnable:
-        """返回当前规格对应的编译图；命中缓存时跳过模型/工具/子 Agent 重建。"""
-        agent_config = await get_agent_spec(self.name)
+    async def factory(
+        self,
+        *,
+        override: dict | None = None,
+        label: str | None = None,
+    ) -> Runnable:
+        """返回当前规格对应的编译图；override/label 参与规格与缓存键。"""
+        agent_config = await get_agent_spec(
+            self.name,
+            override=override,
+            label=label,
+        )
         # 技能内容更新不改变图结构：ensure_skills 内部有进程内缓存和后台刷新。
         await ensure_skills(self.name, agent_config.skills)
 
-        subagent_specs = await self._load_subagent_specs(agent_config.subagents)
+        subagent_specs = await self._load_subagent_specs(
+            agent_config.subagents, label
+        )
         spec_hash = self._spec_hash(agent_config, subagent_specs)
         cached = self._cache.get(self.name, spec_hash)
         if cached is not None:
@@ -160,7 +178,7 @@ class AgentFactory(ABC):
 
             model = self._get_model(agent_config)
             tools = await self._get_tools(agent_config)
-            subagents = await self._build_subagents(subagent_specs)
+            subagents = await self._build_subagents(subagent_specs, label)
             agent = await self.create_agent(
                 model=model,
                 system_prompt=agent_config.system_prompt,
@@ -205,6 +223,14 @@ class AgentFactory(ABC):
     def cache_stats(self) -> dict[str, object]:
         """暴露缓存统计，供健康检查/调试接口使用。"""
         return self._cache.stats()
+
+    def cached_versions(self) -> list[str]:
+        """返回当前进程内保留的 spec_hash，供灰度/回滚排查。"""
+        return self._cache.versions(self.name)
+
+    def rollback(self, spec_hash: str) -> Runnable | None:
+        """取回指定历史版本；仅限仍在缓存中的版本，不修改 Nacos。"""
+        return self._cache.get(self.name, spec_hash)
 
     def clear_cache(self) -> None:
         """清空当前工厂的编译缓存；主要供测试或运维手动失效使用。"""

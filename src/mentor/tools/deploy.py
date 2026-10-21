@@ -18,7 +18,7 @@ from mentor.utils.shared import get_user_id
 
 
 # 部署模块专用桶；其他上传模块自行定义各自的桶名。
-_BUCKET_NAME = "agent-artifacts"
+_BUCKET_NAME = minio_settings.bucket
 # 沙箱脚本用该前缀输出唯一一行 JSON 结果，宿主只解析这一行，忽略 stderr/日志。
 _RESULT_MARKER = "__DEPLOY_RESULT__="
 

@@ -16,6 +16,8 @@ class MinioSettings(BaseSettingsWithEnv):
     secure: bool = False
     # 沙箱内上传地址
     endpoint_in_sandbox: str = ""
+    # 产物桶名；deploy 与 config doctor 共用。
+    bucket: str = "agent-artifacts"
     # 产物预签名 URL 的有效期，1 秒至 7 天。
     presign_expire_seconds: int = Field(default=3600, ge=1, le=604800)
     model_config = {"env_prefix": "MINIO_"}

@@ -21,6 +21,27 @@ make dev
 make debug
 ```
 
+## 配置校验与体检
+
+AgentSpec 支持四层配置：Pydantic defaults < `.env` < Nacos < 单次 run 的 request override。
+`NACOS_LABEL` 可设为 `production` 或 `staging`，用于 Nacos 侧灰度发布。Prompt 跟随 label；
+MCP 是管理端全局配置、Skill 下载仍固定 `production`，切换前请确认对应资源已发布。
+
+```bash
+# 输出 AgentSpec JSON Schema，可交给 CI/编辑器做补全与校验
+uv run mentor config schema
+
+# 校验本地 JSON/YAML，或直接校验 Nacos 中的 Agent
+uv run mentor config validate --file path/to/agent_spec.json
+uv run mentor config validate --agent main_agent
+
+# 启动前体检：Nacos、必填字段、模型网关、MinIO 桶、sandbox_config
+uv run mentor config doctor
+
+# 先体检再启动（任一项失败会阻止启动）
+make dev-check
+```
+
 ## 服务说明
 
 > 以下账号密码均为本地开发默认值，请勿用于生产环境。

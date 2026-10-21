@@ -45,8 +45,14 @@ def trace_wrapper(agent_factory):
             trace_context = {"trace_id": trace_id, "parent_span_id": parent_span_id}
 
         trace_handler = CallbackHandler(trace_context=trace_context)
+        # request override / label 从 LangGraph configurable 透传；不持久化到 Nacos。
+        configurable = config.get("configurable", {}) or {}
+        override = configurable.get("agent_spec_override")
+        if override is not None and not isinstance(override, dict):
+            raise ValueError("agent_spec_override 必须是对象")
+        label = configurable.get("agent_label")
         # 每次图调用都会重新执行工厂；工厂内部按 (agent, spec_hash) 返回缓存图。
-        agent = await agent_factory()
+        agent = await agent_factory(override=override, label=label)
         thread_id = get_thread_id()
         assert runtime.user is not None
         # 保留图自带的 metadata（如 agent_spec_hash），再合并 Langfuse 字段。

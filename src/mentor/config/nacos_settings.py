@@ -1,4 +1,6 @@
-"""Nacos 连接配置：地址、命名空间、账号与缓存 TTL。"""
+"""Nacos 连接配置：地址、命名空间、账号、缓存 TTL 与发布 label。"""
+
+from typing import Literal
 
 from pydantic import field_validator
 
@@ -14,6 +16,8 @@ class NacosSettings(BaseSettingsWithEnv):
     password: str = ""
     # 本地缓存秒数；0 表示每次调用都视为过期（lazy 模式下会持续触发后台刷新）。
     ttl: int = 0
+    # AgentSpec 的发布标签；staging 用于灰度，production 为默认。
+    label: Literal["staging", "production"] = "production"
 
     model_config = {"env_prefix": "NACOS_"}
 

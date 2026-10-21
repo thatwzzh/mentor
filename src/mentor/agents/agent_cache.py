@@ -77,6 +77,10 @@ class AgentCache:
         for key in [key for key in self._entries if key[0] == agent_name]:
             self._entries.pop(key, None)
 
+    def versions(self, agent_name: str) -> list[str]:
+        """返回指定 Agent 当前缓存的 spec_hash，按 LRU 顺序（旧 → 新）。"""
+        return [key[1] for key in self._entries if key[0] == agent_name]
+
     def stats(self) -> dict[str, object]:
         """返回缓存条目数与每个 Agent 的版本数，供日志/健康检查使用。"""
         per_agent: dict[str, int] = {}

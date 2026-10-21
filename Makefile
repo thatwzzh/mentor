@@ -1,6 +1,6 @@
 DS ?= all
 
-.PHONY: docker-recreate build dev debug course course-push test-benchmark test-units
+.PHONY: docker-recreate build dev debug dev-check course course-push test-benchmark test-units test-integrations config-schema config-doctor
 
 docker-recreate:
 	docker compose up -d --force-recreate
@@ -9,6 +9,10 @@ build:
 	uv run langgraph build -t langgraph-python-agent:$(TAG)
 
 dev:
+	uv run langgraph dev --host 0.0.0.0 --port 80
+
+# 先体检再启动；任一项失败会阻止启动。
+dev-check: config-doctor
 	uv run langgraph dev --host 0.0.0.0 --port 80
 
 debug:
@@ -22,3 +26,9 @@ test-units:
 
 test-integrations:
 	MINIO_INTEGRATION=1 DEPLOY_INTEGRATION=1 DEPLOY_SANDBOX_IMAGE=opensandbox-python-node:1.0 uv run pytest -q tests/intergrations
+
+config-schema:
+	uv run mentor config schema
+
+config-doctor:
+	uv run mentor config doctor

@@ -18,9 +18,13 @@ web_agent_factory = WebAgentFactory()
 
 
 @register_subagent("web_agent")
-async def factory() -> Runnable:
+async def factory(
+    *,
+    override: dict | None = None,
+    label: str | None = None,
+) -> Runnable:
     """子 Agent 的异步工厂；注册后由 AgentFactory._build_subagents 统一调用。"""
-    return await web_agent_factory.factory()
+    return await web_agent_factory.factory(override=override, label=label)
 
 
 # 子 Agent 也可能被主 Agent 递归调用，因此同样在 factory 外包一层 trace。

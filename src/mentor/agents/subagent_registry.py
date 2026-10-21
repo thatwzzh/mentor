@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 
 from langchain_core.runnables import Runnable
 
-SubAgentFactory = Callable[[], Awaitable[Runnable]]
+SubAgentFactory = Callable[..., Awaitable[Runnable]]
 
 _factories: dict[str, SubAgentFactory] = {}
 

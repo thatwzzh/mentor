@@ -7,9 +7,15 @@ import logging
 import httpx
 from pydantic import ValidationError
 
+from mentor.config.errors import (
+    ConfigError,
+    ConfigNotFoundError,
+    ConfigUnavailableError,
+)
 from mentor.config.nacos.nacos_access_token import get_access_token
 from mentor.config.nacos.nacos_mcp import get_mcps
 from mentor.config.nacos.nacos_prompt import get_prompts
+from mentor.config.layers import merge_agent_spec, resolve_label
 from mentor.config.nacos.nacos_schemas import AgentSpec
 from mentor.config.nacos_settings import nacos_settings
 from mentor.utils.func_tools import func_cache
@@ -18,16 +24,16 @@ from mentor.utils.func_tools import func_cache
 _NOT_FOUND_CODES = {404, 40400}
 
 
-class AgentSpecError(RuntimeError):
+class AgentSpecError(ConfigError):
     """Agent 规格读取失败的基类。"""
 
 
-class AgentSpecNotFound(AgentSpecError):
-    """Nacos 中不存在对应的 Agent 规格。"""
+class AgentSpecNotFound(AgentSpecError, ConfigNotFoundError):
+    """Nacos 中不存在对应的 Agent 规格；有旧缓存时可降级。"""
 
 
-class AgentSpecUnavailable(AgentSpecError):
-    """Nacos 不可用、鉴权失败或返回了非法内容。"""
+class AgentSpecUnavailable(AgentSpecError, ConfigUnavailableError):
+    """Nacos 不可用、鉴权失败或返回了非法内容；必须 fail-fast。"""
 
 
 def _error_code(payload: dict) -> int:
@@ -52,20 +58,26 @@ def _raise_for_payload(payload: dict, agent_name: str) -> None:
 
 # TTL 来自 NACOS_TTL；lazy=True 表示到期后先返回旧值，再在后台刷新。
 @func_cache(ttl=nacos_settings.ttl, lazy=True)
-async def get_agent_spec(agent_name: str) -> AgentSpec:
+async def get_agent_spec(
+    agent_name: str,
+    *,
+    override: dict | None = None,
+    label: str | None = None,
+) -> AgentSpec:
+    label = resolve_label(label)
     access_token = await get_access_token()
     try:
         async with httpx.AsyncClient(
             base_url=nacos_settings.server_address,
             headers={"accessToken": access_token},
-            timeout=10,
+            timeout=5,
         ) as client:
             response = await client.get(
                 "/nacos/v3/client/ai/agentspecs",
                 params={
                     "namespaceId": nacos_settings.namespace_id,
                     "name": agent_name,
-                    "label": "production",
+                    "label": label,
                 },
             )
     except httpx.HTTPError as exc:
@@ -120,15 +132,17 @@ async def get_agent_spec(agent_name: str) -> AgentSpec:
     config["name"] = agent_name
     link_prompts = config.get("link_prompts") or []
     # link_prompts 指向 Nacos Prompt 模板，按声明顺序拼接在主 Prompt 之后。
-    prompt = await get_prompts(link_prompts)
+    prompt = await get_prompts(link_prompts, label=label)
     config["system_prompt"] = system_prompt + "\n\n" + prompt
 
     try:
-        return AgentSpec.model_validate(config)
+        spec = AgentSpec.model_validate(config)
     except ValidationError as exc:
         raise AgentSpecUnavailable(
             f"Nacos Agent 配置校验失败: {agent_name}"
         ) from exc
+    # 第四层：request override 只作用于本次 run，不写回 Nacos。
+    return merge_agent_spec(spec, override)
 
 
 if __name__ == "__main__":

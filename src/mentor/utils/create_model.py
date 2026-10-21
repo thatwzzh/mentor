@@ -1,7 +1,11 @@
-"""模型工厂：按 Agent 配置创建 LiteLLM/OpenAI 兼容模型，并注入会话头。"""
+"""模型工厂：按 Agent 配置创建 LiteLLM/OpenAI 兼容模型。
+
+x-litellm-session-id 不在这里写死：图会被 AgentFactory 缓存，header 由
+ReasoningChatModel 在每次请求时从 session_context 读取并注入。
+"""
 
 from langchain.chat_models import init_chat_model
-from mentor.utils.shared import get_thread_id
+
 from mentor.config.nacos.nacos_schemas import AgentModelConfig
 
 
@@ -19,11 +23,6 @@ def create_model(model_config: AgentModelConfig | None = None):
         config["temperature"] = model_config.temperature
     if model_config.top_p is not None:
         config["top_p"] = model_config.top_p
-
-    thread_id = get_thread_id()
-    if thread_id:
-        # 让 LiteLLM 按会话做路由/计费；同名 header 也会出现在网关日志里。
-        config["default_headers"] = {"x-litellm-session-id": thread_id}
 
     model = init_chat_model(**config)
     return model

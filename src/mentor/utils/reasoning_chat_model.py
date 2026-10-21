@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_openai import ChatOpenAI
 
+from mentor.utils.session_context import litellm_session_id
+
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessageChunk
 
@@ -45,6 +47,26 @@ class ReasoningChatModel(ChatOpenAI):
     """
 
     output_version: str = "v1"  # type: ignore # 启用 content_blocks，LangSmith 可渲染
+
+    def _get_request_payload(
+        self,
+        input_: Any,
+        *,
+        stop: list[str] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """在请求构造阶段注入当前 thread 的 LiteLLM 会话头。
+
+        图会被跨请求缓存，所以 header 不能放在模型构造参数里；每次模型请求都从
+        ContextVar 读取 trace_wrapper 设置的最新 thread_id。
+        """
+        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+        session_id = litellm_session_id.get()
+        if session_id:
+            headers = dict(payload.get("extra_headers") or {})
+            headers["x-litellm-session-id"] = session_id
+            payload["extra_headers"] = headers
+        return payload
 
     # ---- 非流式 ------------------------------------------------------------
 

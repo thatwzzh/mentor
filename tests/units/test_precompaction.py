@@ -77,3 +77,14 @@ def test_post_turn_precompaction_writes_pending_and_event(monkeypatch):
     assert "login bug" in pending.summary
     assert events and events[0].kind == "compression"
     assert events[0].data["source"] == "precompact"
+
+
+def test_pending_claim_and_ready_claim_are_atomic():
+    store = InMemoryContextSummaryStore()
+    assert store.try_claim("thread-1", "run-1", "user-1", 10) is True
+    assert store.try_claim("thread-1", "run-2", "user-1", 10) is False
+    assert store.mark_ready("thread-1", "summary", 10) is True
+    first = store.claim_ready("thread-1")
+    second = store.claim_ready("thread-1")
+    assert first is not None and first.summary == "summary"
+    assert second is None

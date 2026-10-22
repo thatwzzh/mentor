@@ -1,5 +1,6 @@
 """追踪包装器：为每次 Agent 调用挂载 Langfuse CallbackHandler 并传播 trace 上下文。"""
 
+import asyncio
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -11,6 +12,19 @@ from langgraph_sdk.runtime import ServerRuntime
 
 from .session_context import litellm_session_id
 from .shared import get_thread_id
+
+# 进程内同 thread 串行；多 worker 部署仍需 Redis/Postgres 分布式锁。
+_thread_locks: dict[str, tuple[asyncio.AbstractEventLoop, asyncio.Lock]] = {}
+
+
+def _thread_lock(thread_id: str) -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    entry = _thread_locks.get(thread_id)
+    if entry is None or entry[0] is not loop:
+        lock = asyncio.Lock()
+        _thread_locks[thread_id] = (loop, lock)
+        return lock
+    return entry[1]
 
 
 def _merge_trace_metadata(
@@ -66,6 +80,9 @@ def trace_wrapper(agent_factory):
         )
 
         env = metadata.get("trace_environment", "")
+        lock = _thread_lock(thread_id) if thread_id else None
+        if lock is not None:
+            await lock.acquire()
         # 把当前 thread 写进 ContextVar，供 ReasoningChatModel 在每次请求时注入
         # x-litellm-session-id；图是跨请求缓存的，不能把首个 thread 的 header 固定下来。
         session_token = litellm_session_id.set(thread_id or "")
@@ -77,5 +94,7 @@ def trace_wrapper(agent_factory):
                 yield agent
         finally:
             litellm_session_id.reset(session_token)
+            if lock is not None:
+                lock.release()
 
     return _trace

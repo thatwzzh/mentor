@@ -200,7 +200,9 @@ SummarizationMiddleware（显式 trigger/keep）
 - trigger 按模型 profile 最大输入 token × `CONTEXT_TRIGGER_RATIO`；profile 缺失用 `CONTEXT_WINDOW_TOKENS`。
 - `CONTEXT_AUTO_COMPACT=false` 时把自动 trigger 抬到窗口外，只保留手动 compact；手动资格线仍是正常 trigger 的 50%。
 - 回答后 `PostTurnCompactionMiddleware` 在 token ≥ 窗口 60% 时后台生成摘要，写 `pending_context_summaries`；下一轮 `PendingCompactionMiddleware` 只注入摘要，不调摘要模型。
+- pending 使用 `try_claim` / `claim_ready` 原子占位与领取，避免同 thread 重复摘要/重复注入。
 - 预压缩只在主 Agent 启用；后台失败/进程退出时回落到 0.8 请求内压缩。
+- 同 thread 的 run 在进程内串行；多 worker 仍需分布式锁。
 - `usage` 事件优先于 `model_response` 汇总 token；`/runs/{id}/usage` 可查。
 - 工具全文本地 artifact 可读，MinIO 只做持久化镜像；`minio_ref` 供审计/恢复。
 - 摘要模型调用本身暂未计入 usage；`/compact` 命令入口在前端。

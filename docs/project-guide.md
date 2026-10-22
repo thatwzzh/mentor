@@ -348,7 +348,9 @@ RUN_EVENTS_POSTGRES_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor \
 - 策略 `pattern` 匹配的是参数 JSON 文本，不是语义解析；复杂命令需配合更精确的规则。
 - TokenMeter 用 usage_metadata 回填成本，不实现自定义 tokenizer；摘要模型调用本身暂未计入 usage。
 - 预压缩摘要写入 Postgres 后，下一轮会作为 `lc_source=summarization` 的 HumanMessage 注入；注入后仍由 checkpoint 修剪保留最近 10 轮。
+- pending 使用原子 claim：`try_claim` 只允许一个 run 启动摘要，`claim_ready` 只允许一个 run 注入；stale generating 默认 10 分钟后可回收。
 - 预压缩只在主 Agent 挂载；子 Agent 共享 thread 时不重复覆盖。
+- `trace_wrapper` 对同一 thread 加进程内 asyncio 锁；多 worker 部署仍需 Redis/Postgres 分布式锁。
 - 后台摘要失败/进程退出时没有 pending，自动 0.8 压缩仍是兜底。
 - `/compact` 需要前端把命令映射到 `compact_conversation`；命令入口未在本仓库实现。
 - 审批中断依赖 LangGraph checkpointer/resume；无 checkpointer 的本地调用不会产生可恢复审批。

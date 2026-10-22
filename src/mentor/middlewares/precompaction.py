@@ -83,13 +83,16 @@ class PostTurnCompactionMiddleware(AgentMiddleware):
             if token_count < int(window * context_settings.precompact_ratio):
                 return None
             store = self._store()
-            if store is None or store.get(thread_id) is not None:
+            if store is None or not store.try_claim(
+                thread_id, run_id, user_id, token_count
+            ):
                 return None
             old_messages = messages[: human_indexes[-keep]]
             selected = _trim_for_summary(
                 old_messages, context_settings.trim_tokens_to_summarize
             )
             if not selected:
+                store.delete(thread_id)
                 return None
             task = asyncio.create_task(
                 self._compact(
@@ -119,19 +122,16 @@ class PostTurnCompactionMiddleware(AgentMiddleware):
         try:
             summary = await self.summarization._acreate_summary(selected)
             if not summary.strip():
+                store = self._store()
+                if store is not None:
+                    store.delete(thread_id)
                 return
             store = self._store()
             if store is None:
                 return
-            store.upsert(
-                PendingSummary(
-                    thread_id=thread_id,
-                    run_id=run_id,
-                    user_id=user_id,
-                    summary=summary,
-                    token_before=token_before,
-                )
-            )
+            if not store.mark_ready(thread_id, summary, token_before):
+                logger.warning("预压缩 claim 已失效 thread_id=%s", thread_id)
+                return
             summary_hash = hashlib.sha256(summary.encode("utf-8")).hexdigest()[:16]
             self.writer(
                 RunEvent(
@@ -150,6 +150,9 @@ class PostTurnCompactionMiddleware(AgentMiddleware):
                 )
             )
         except Exception as exc:
+            store = self._store()
+            if store is not None:
+                store.delete(thread_id)
             logger.warning("后台预压缩失败 thread_id=%s: %s", thread_id, exc)
 
 
@@ -182,9 +185,9 @@ class PendingCompactionMiddleware(AgentMiddleware):
         if store is None:
             return None
         try:
-            pending = store.get(thread_id)
+            pending = store.claim_ready(thread_id)
         except Exception as exc:
-            logger.warning("预压缩摘要读取失败 thread_id=%s: %s", thread_id, exc)
+            logger.warning("预压缩摘要领取失败 thread_id=%s: %s", thread_id, exc)
             return None
         if pending is None:
             return None
@@ -192,13 +195,11 @@ class PendingCompactionMiddleware(AgentMiddleware):
         # 已经注入过同一摘要时避免重复。
         if messages and isinstance(messages[0], HumanMessage):
             if messages[0].additional_kwargs.get("lc_source") == "summarization":
-                store.delete(thread_id)
                 return None
         summary_message = HumanMessage(
             content=pending.summary,
             additional_kwargs={"lc_source": "summarization"},
         )
-        store.delete(thread_id)
         return {
             "messages": [
                 RemoveMessage(id=REMOVE_ALL_MESSAGES),

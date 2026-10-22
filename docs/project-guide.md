@@ -1,7 +1,7 @@
 # Mentor 项目开发指南
 
 > 面向开发者的项目说明：代码结构、请求链路、配置分层、沙箱生命周期、测试与发布。
-> 基础设施与端口拓扑见 [architecture.md](architecture.md)。
+> 文档索引见 [README.md](README.md)；基础设施与端口拓扑见 [architecture.md](architecture.md)。
 
 ## 1. 项目定位
 
@@ -164,7 +164,7 @@ GET /runs/{run_id}/events               # SSE（Last-Event-ID 重连）
 - 工具事件在副作用前后各写一条；崩溃时可用 `trace` 的 `pending_tools` 定位最后一个未完成工具。
 - 事件表使用 Postgres（`mentor-postgres`），带 `schema_version`；`after_seq`/SSE `Last-Event-ID` 支持重放。
 - Postgres 写失败时落到 `RUN_EVENTS_OUTBOX_DIR`，用 `mentor events replay` 重放。
-- 前端 SSE/卡片验证待前端阶段完成，见 [run-events-frontend-todo.md](run-events-frontend-todo.md)。
+- 前端 SSE/卡片验证待前端阶段完成，见 [frontend/run-events-frontend-todo.md](frontend/run-events-frontend-todo.md)。
 
 ### 4.3 工具策略与审批
 
@@ -411,10 +411,10 @@ RUN_EVENTS_POSTGRES_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor \
 
 完整 P0/P1/P2 改造清单、风险矩阵、双用户验收用例与 Go/No-Go 条件见：
 
-- [多账号 / 多租户上线改造清单](multi-account-hardening.md)
-- [上线前待改动项 Backlog](prelaunch-backlog.md)（4.2.5 鉴权/多租户、4.2.7 观测/评测）
-- [章节 4 优化项复核（2026-10-22）](section4-audit-2026-10-22.md)
+- [多账号 / 多租户上线改造清单](launch/multi-account-hardening.md)
+- [上线前待改动项 Backlog](launch/prelaunch-backlog.md)（4.2.5 鉴权/多租户、4.2.7 观测/评测）
+- [章节 4 优化项复核（2026-10-22）](status/section4-audit-2026-10-22.md)
 - [配置分工：Agent vs LiteLLM](config-split.md)
-- [异步子代理前端接入说明](async-subagent-frontend.md)
+- [异步子代理前端接入说明](frontend/async-subagent-frontend.md)
 
 上线前至少完成 P0-1 ~ P0-6，并通过双用户越权 E2E；4.2.7 指标与 golden 回归通过。

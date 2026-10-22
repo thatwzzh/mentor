@@ -81,7 +81,7 @@
 
 ## 6. 其他 §4 遗留（2026-10-22 复核）
 
-4.2.1/4.2.2/4.2.3/4.2.4/4.2.6 主体已完成，但以下边界仍需在上线前处理。完整证据见 [section4-audit-2026-10-22.md](section4-audit-2026-10-22.md)。
+4.2.1/4.2.2/4.2.3/4.2.4/4.2.6 主体已完成，但以下边界仍需在上线前处理。完整证据见 [section4-audit-2026-10-22.md](../status/section4-audit-2026-10-22.md)。
 
 | 项 | 状态 | 待办 |
 |---|---|---|
@@ -104,6 +104,6 @@
 
 ## 7. 5.2 前端待办
 
-5.2 后端（事件类型、工具前后写入、SSE、trace/usage、outbox）已完成；前端 SSE 与卡片渲染未验证。清单见 [run-events-frontend-todo.md](run-events-frontend-todo.md)。
+5.2 后端（事件类型、工具前后写入、SSE、trace/usage、outbox）已完成；前端 SSE 与卡片渲染未验证。清单见 [run-events-frontend-todo.md](../frontend/run-events-frontend-todo.md)。
 
 验收条件：任一 run 可按 seq 重放；崩溃后能看到 `status=incomplete` 与 `pending_tools`；工具卡/审批卡/产物卡与事件流同源。

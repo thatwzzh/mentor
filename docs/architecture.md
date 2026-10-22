@@ -1,8 +1,9 @@
 # Mentor 基础设施架构
 
 > 本文根据「基础设施全貌」图整理，并结合 mentor 仓库中实际的 `docker-compose.yml`、`opensandbox_config.toml`、`langgraph.json` 与 `.env.example` 补充了端口、配置和调用关系。
+> 文档索引见 [README.md](README.md)。
 
-![基础设施全貌](infrastructure-overview.jpg)
+![基础设施全貌](assets/infrastructure-overview.jpg)
 
 ## 0. 最近演进（2026-10）
 
@@ -455,7 +456,7 @@ docker compose up -d shared-minio
 - 工具全文 MinIO 镜像是尽力而为，失败仍保留本地 artifact。
 - `/compact` 需要前端映射到 compact_conversation。
 - 审批中断依赖 checkpointer/resume；前端审批卡未验证。
-- 多账号/多租户上线前必须完成真实鉴权、Assistants owner 过滤、MinIO 凭据隔离、LiteLLM 配额等改造；完整清单见 [multi-account-hardening.md](multi-account-hardening.md)；4.2.5/4.2.7 的上线前待办见 [prelaunch-backlog.md](prelaunch-backlog.md)。
+- 多账号/多租户上线前必须完成真实鉴权、Assistants owner 过滤、MinIO 凭据隔离、LiteLLM 配额等改造；完整清单见 [launch/multi-account-hardening.md](launch/multi-account-hardening.md)；4.2.5/4.2.7 的上线前待办见 [launch/prelaunch-backlog.md](launch/prelaunch-backlog.md)。
 
 ## 9. 一个具体请求的完整路径
 

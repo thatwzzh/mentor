@@ -2,7 +2,7 @@
 
 基于 LangGraph / DeepAgents 的 Agent 服务：Nacos 管理运行时配置，OpenSandbox 提供隔离执行环境，LiteLLM 统一模型网关，MinIO 保存运行时文件与产物，Langfuse 负责观测与评估。
 
-完整架构说明见 [docs/architecture.md](docs/architecture.md)；开发、配置、沙箱与发布 runbook 见 [docs/project-guide.md](docs/project-guide.md)；多账号/多租户上线改造清单见 [docs/multi-account-hardening.md](docs/multi-account-hardening.md)；4.2.5/4.2.7 上线前待办见 [docs/prelaunch-backlog.md](docs/prelaunch-backlog.md)。
+文档索引见 [docs/README.md](docs/README.md)。完整架构说明见 [docs/architecture.md](docs/architecture.md)；开发、配置、沙箱与发布 runbook 见 [docs/project-guide.md](docs/project-guide.md)；多账号/多租户上线改造清单见 [docs/launch/multi-account-hardening.md](docs/launch/multi-account-hardening.md)；4.2.5/4.2.7 上线前待办见 [docs/launch/prelaunch-backlog.md](docs/launch/prelaunch-backlog.md)。
 
 ## 启动服务
 
@@ -67,7 +67,7 @@ Agent 侧 `max_retries` 固定为 0，避免与 LiteLLM 重复重试。
 
 异步子代理：有 `subagents` 的 Agent 自动获得 `spawn_subagent` / `check_subagent` /
 `cancel_subagent`；后台执行、默认深度 1、默认只读、写 `subagent_*` 事件，父级只拿
-job_id 和摘要。前端接入见 [docs/async-subagent-frontend.md](docs/async-subagent-frontend.md)。
+job_id 和摘要。前端接入见 [docs/frontend/async-subagent-frontend.md](docs/frontend/async-subagent-frontend.md)。
 
 ## 服务说明
 

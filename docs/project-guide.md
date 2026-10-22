@@ -284,5 +284,6 @@ RUN_EVENTS_POSTGRES_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor \
 
 - [多账号 / 多租户上线改造清单](multi-account-hardening.md)
 - [上线前待改动项 Backlog](prelaunch-backlog.md)（4.2.5 鉴权/多租户、4.2.7 观测/评测）
+- [章节 4 优化项复核（2026-10-22）](section4-audit-2026-10-22.md)
 
 上线前至少完成 P0-1 ~ P0-6，并通过双用户越权 E2E；4.2.7 指标与 golden 回归通过。

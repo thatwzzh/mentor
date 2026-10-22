@@ -78,3 +78,26 @@
 4. 4.2.7 指标 + trace metadata + golden 回归。
 5. 4.2.5 P0-5/6 网络与 LiteLLM 配额。
 6. 全量 Go/No-Go 检查。
+
+## 6. 其他 §4 遗留（2026-10-22 复核）
+
+4.2.1/4.2.2/4.2.3/4.2.4/4.2.6 主体已完成，但以下边界仍需在上线前处理。完整证据见 [section4-audit-2026-10-22.md](section4-audit-2026-10-22.md)。
+
+| 项 | 状态 | 待办 |
+|---|---|---|
+| S7 沙箱同步接口 | 未完成 | `execute/upload_files/download_files` 仍用 `asyncio.run`；改显式 async 或线程池执行 |
+| S12 web 工具 | 部分 | 执行器已有 timeout/截断；补重试/退避 |
+| S13 CI/ruff | 未完成 | 增加 pyright + 单测 + config validate 的 CI 门禁 |
+| S16 ask_user_question | 部分 | 空答案仍抛 ValueError；改为可恢复错误，不依赖执行器兜底 |
+| S17 MCP 管理端 | 未完成 | `nacos_mcp` 仍调 `/nacos/v3/admin/ai/mcp`；补只读 client 接口或明确权限 |
+| S18 deploy 原子性 | 未完成 | 先清空后上传；改为临时前缀 + 切换/回滚 |
+| S19 NACOS_TTL | 未完成 | 默认 0；改为 5 秒默认并加 ttl > 0 校验 |
+| S20 Compose profiles | 未完成 | 12 服务默认全启；按 core/observability/eval 拆 profiles |
+
+其他边界：
+
+- 4.2.1 首次构建仍同步等待 skill 下载；`AgentCache` 无全局条目上限。
+- 4.2.2 `doctor` 不校验具体模型名/沙箱镜像是否存在；没有 CI 门禁。
+- 4.2.3 空闲回收只在创建新沙箱时触发；没有启动时 `runtime.store` 检查；网络/配额是可选配置。
+- 4.2.4 MCP 字段依赖 Nacos 真实透出；`risk` 尚未被策略层消费。
+- 4.2.6 没有 TokenMeter/预算；事件类型缺 run/model 生命周期；仓库无前端实现。

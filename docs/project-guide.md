@@ -234,6 +234,24 @@ Agent 侧
 - `usage.served_model` 记录实际返回模型，便于发现 LiteLLM fallback。
 - **成本预算**由 LiteLLM key/team budget 承担；Agent 侧 token 预算是防单 run 失控，不是账单级成本控制。
 
+### 4.6 异步子代理
+
+```text
+主 Agent
+  → spawn_subagent(agent_name, task)  # 立即返回 job_id
+  → 后台 asyncio task 执行已注册子 Agent
+  → subagent_started / subagent_finished / subagent_failed / subagent_cancelled 事件
+主 Agent 后续
+  → check_subagent(job_id) / cancel_subagent(job_id)
+```
+
+- `SubAgentSpec`：name、description、max_depth、timeout、result_schema、read_only；默认 `max_depth=1`、`timeout=180s`、只读。
+- 子代理默认只读：`ToolPolicyMiddleware` 在 `subagent_depth>0` 时拒绝 `write/destructive` 工具。
+- 父级只拿 `job_id` 和摘要（最多 2,000 字符），不把子代理 transcript 塞回主上下文。
+- 完成事件写入 `run_events`；当前没有自动 resume 父图，前端/调用方用 `check_subagent` 取结果或触发下一轮。
+- 这是进程内实现：job 状态不跨进程/重启；不做消息板、角色市场、跨进程 ACP。
+- 配置：`SUBAGENT_MAX_DEPTH`、`SUBAGENT_TIMEOUT_SECONDS`。
+
 ## 5. 配置分层与灰度
 
 ```text
@@ -321,6 +339,8 @@ deploy 自建 backend → finally aclose_run
 | `TOOL_MINIO_ARTIFACTS` | 超长工具全文是否镜像 MinIO，默认 true |
 | `MODEL_REQUEST_TIMEOUT_SECONDS` | 模型请求超时，默认 120s |
 | `RUN_BUDGET_MAX_TOKENS` / `RUN_BUDGET_MAX_SECONDS` | 单 run token/时间预算；0 不限制 |
+| `SUBAGENT_MAX_DEPTH` | 子代理最大递归深度，默认 1 |
+| `SUBAGENT_TIMEOUT_SECONDS` | 子代理单任务超时，默认 180s |
 | `RUN_BUDGET_MAX_OUTPUT_TOKENS` | 预算预检查预留输出，默认 4096 |
 | `CONTEXT_WINDOW_TOKENS` | 模型窗口回退值，默认 128000 |
 | `CONTEXT_TRIGGER_RATIO` | 自动压缩触发比例，默认 0.8 |
@@ -381,6 +401,8 @@ RUN_EVENTS_POSTGRES_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor \
 - `trace_wrapper` 对同一 thread 加进程内 asyncio 锁；多 worker 部署仍需 Redis/Postgres 分布式锁。
 - 后台摘要失败/进程退出时没有 pending，自动 0.8 压缩仍是兜底。
 - `/compact` 需要前端把命令映射到 `compact_conversation`；命令入口未在本仓库实现。
+- 异步子代理完成只写事件，不自动唤醒已结束的父图；需要前端/调用方用 `check_subagent` 拉取结果。
+- 子代理 job 状态在进程内；进程重启会丢失未完成任务，run 事件仍在。
 - 审批中断依赖 LangGraph checkpointer/resume；无 checkpointer 的本地调用不会产生可恢复审批。
 
 ## 10. 上线前：多账号 / 多租户

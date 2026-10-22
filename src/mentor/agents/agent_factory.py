@@ -136,6 +136,16 @@ class AgentFactory(ABC):
             bundle.register_mcp_specs(specs)
         # 有 deferred 工具时自动补 tool_search / call_tool。
         bundle.add_deferred_tools()
+        # 声明了子 Agent 的 Agent 自动获得后台 spawn/check/cancel 工具。
+        if agent_config.subagents:
+            from mentor.tools.async_subagent import async_subagent_tool_specs
+
+            for spec in async_subagent_tool_specs():
+                if bundle.registry.has(spec.name):
+                    continue
+                bundle.registry.register(spec)
+                if spec.exposure == "direct" and spec.tool is not None:
+                    bundle.direct_tools.append(spec.tool)
         return bundle
 
     async def _load_subagent_specs(

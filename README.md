@@ -65,6 +65,10 @@ Agent 侧 `max_retries` 固定为 0，避免与 LiteLLM 重复重试。
 配置分工见 [docs/config-split.md](docs/config-split.md)：LiteLLM 管超时/重试/fallback/熔断，Agent 管客户端超时、上下文压缩和单 run 预算。`RUN_BUDGET_MAX_TOKENS/MAX_SECONDS` 提供单 run 预算，
 超限抛 `BudgetExceeded` 终止；子 Agent 共享父 run 预算。
 
+异步子代理：有 `subagents` 的 Agent 自动获得 `spawn_subagent` / `check_subagent` /
+`cancel_subagent`；后台执行、默认深度 1、默认只读、写 `subagent_*` 事件，父级只拿
+job_id 和摘要。
+
 ## 服务说明
 
 > 以下账号密码均为本地开发默认值，请勿用于生产环境。

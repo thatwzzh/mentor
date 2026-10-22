@@ -16,6 +16,7 @@ from mentor.events.approvals import (
     ApprovalStoreProtocol,
     get_approval_store,
 )
+from mentor.utils.subagent_context import get_subagent_depth
 from mentor.events.context import runtime_ids
 from mentor.events.models import RunEvent
 from mentor.events.writer import EventWriter, append_event
@@ -158,6 +159,19 @@ class ToolPolicyMiddleware(AgentMiddleware):
         call_id = str(tool_call.get("id") or f"{name}-{time.monotonic_ns()}")
         run_id, thread_id, user_id = runtime_ids()
         spec = self.registry.get(name) or self.registry.default(name)
+        if get_subagent_depth() > 0 and spec.risk in {"write", "destructive"}:
+            reason = "子代理默认只读，禁止 write/destructive 工具"
+            self._record(
+                run_id=run_id,
+                thread_id=thread_id,
+                user_id=user_id,
+                name=name,
+                args=args,
+                decision="deny",
+                reason=reason,
+                tool_call_id=call_id,
+            )
+            return _error_message(name, call_id, reason)
         decision = self.policy.decide(name, args, spec.risk)
         if decision.decision == "allow":
             return await handler(request)

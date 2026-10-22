@@ -17,6 +17,7 @@
 | 策略 | `ToolPolicy` + `ToolPolicyMiddleware`；`approval_events` 审计；prompt 中断、deny 不执行、单 run 上限 |
 | 上下文 | `TokenMeterMiddleware` + 显式 `SummarizationMiddleware`；工具头 4KB/尾 1KB，全文 MinIO；`compact_conversation` 手动压缩 |
 | 韧性/预算 | LiteLLM 负责 provider 重试/fallback/熔断；Agent 侧 `BudgetMiddleware` + `RunBudget` 管 token/deadline；TokenMeter 记录 served_model |
+| 子代理 | `spawn_subagent` 后台 asyncio 任务；`max_depth=1`、超时、取消、只读策略；完成写 subagent 事件 |
 
 ## 1. 一句话定位
 
@@ -224,6 +225,23 @@ Agent：MODEL_REQUEST_TIMEOUT_SECONDS + max_retries 固定 0
 - 单 run 成本账单级控制仍使用 LiteLLM key/team budget；Agent 预算只防单 run 失控。
 - 当前 `litellm-config.yaml` 只有 session_affinity，fallback/cooldown 需要显式补配置。
 
+### 4.2.5 异步子代理
+
+```text
+主 Agent
+  → spawn_subagent → job_id（立即返回）
+  → 后台 asyncio task 执行已注册子图
+  → subagent_started / finished / failed / cancelled 事件
+主 Agent
+  → check_subagent / cancel_subagent
+```
+
+- `SubAgentSpec` 默认 `max_depth=1`、180s 超时、只读；`SUBAGENT_*` 可调。
+- `subagent_depth>0` 时 ToolPolicy 拒绝 write/destructive，保证子代理默认只读。
+- 父级只拿 job_id + 2k 字符摘要，子代理 transcript 不进入父上下文。
+- 当前完成事件不自动 resume 父图；前端/调用方用 `check_subagent` 拉取结果或开下一轮。
+- job 状态在进程内，重启会丢未完成任务；不做消息板/角色市场/跨进程 ACP。
+
 ### 4.3 模型链路：Agent → LiteLLM → 模型提供方
 
 ```
@@ -364,6 +382,7 @@ docker compose up -d shared-minio
 | `CONTEXT_PRECOMPACT_RATIO` | 回答后异步预压缩水位，默认 0.60 |
 | `MODEL_REQUEST_TIMEOUT_SECONDS` | 客户端超时保护；需 ≥ LiteLLM timeout |
 | `RUN_BUDGET_MAX_TOKENS` / `RUN_BUDGET_MAX_SECONDS` / `RUN_BUDGET_MAX_OUTPUT_TOKENS` | 单 run 预算 |
+| `SUBAGENT_MAX_DEPTH` / `SUBAGENT_TIMEOUT_SECONDS` | 子代理深度与超时 |
 | `TOOL_POLICY_ENABLED` | 策略总开关；false 回退 allow |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 连接配置 |
 | `LANGFUSE_TRACE_RETENTION_DAYS` | Trace 保留天数，供清理任务使用 |
@@ -429,6 +448,8 @@ docker compose up -d shared-minio
 - 旧前端读取 state `turn_summary` 的，需要迁移到 `RunSummary`。
 - 策略正则匹配参数 JSON，不是命令语义；复杂命令需要更精确的规则。
 - LiteLLM fallback/circuit 必须显式配置；否则 Agent 侧 `max_retries=0` 意味着无重试。
+- 异步子代理不自动唤醒已结束的父图；完成只写事件，需前端/调用方拉取。
+- 子代理 job 状态是进程内状态，不适合多 worker 直接查询。
 - Agent token 预算不等于账单成本控制；成本看 LiteLLM key/team budget。
 - TokenMeter 用 usage_metadata 回填成本，不实现自定义 tokenizer；摘要调用未计量。
 - 工具全文 MinIO 镜像是尽力而为，失败仍保留本地 artifact。

@@ -39,6 +39,10 @@ from mentor.middlewares.context import (
     build_compact_tool_middleware,
     build_summarization_middleware,
 )
+from mentor.middlewares.precompaction import (
+    PendingCompactionMiddleware,
+    PostTurnCompactionMiddleware,
+)
 from mentor.middlewares.token_meter import TokenMeterMiddleware
 from mentor.middlewares.tool_executor import ToolExecutorMiddleware
 from mentor.middlewares.tool_policy import ToolPolicyMiddleware
@@ -263,6 +267,10 @@ class AgentFactory(ABC):
             middleware.append(
                 build_compact_tool_middleware(manual_summarization)
             )
+            # 预压缩只挂主 Agent，避免子 Agent 共享 thread 时重复覆盖摘要。
+            if self.name == "main_agent":
+                middleware.append(PendingCompactionMiddleware())
+                middleware.append(PostTurnCompactionMiddleware(manual_summarization))
         # 策略在工具执行器外层：deny/prompt 不会触发工具副作用。
         middleware.append(ToolPolicyMiddleware(tool_registry))
         middleware.append(ToolExecutorMiddleware(tool_registry))

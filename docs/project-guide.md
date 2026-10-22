@@ -205,6 +205,7 @@ SummarizationMiddleware（显式配置）
 ```
 
 - `CONTEXT_WINDOW_TOKENS` 是模型 profile 缺失时的回退；有 `max_input_tokens` 时优先用 profile。
+- `CONTEXT_PRECOMPACT_RATIO=0.60`：回答结束后、检查点修剪前，如果 token 超过窗口 60%，后台异步生成摘要，写入 `pending_context_summaries`；下一轮只读取并注入，不在请求路径调摘要模型。
 - `CONTEXT_AUTO_COMPACT=false` 时自动触发阈值抬高，只保留 `compact_conversation` 手动压缩；手动压缩仍需达到正常 trigger 的 50%（默认约 51,200 tokens）。
 - 工具输出超过阈值时保留头 4KB + 尾 1KB；全文写本地 artifact，并镜像 MinIO，envelope 带 `minio_ref`。
 - `/compact` 由前端映射到 `compact_conversation` 工具；压缩结果写 `compression` 事件。
@@ -297,6 +298,7 @@ deploy 自建 backend → finally aclose_run
 | `TOOL_MINIO_ARTIFACTS` | 超长工具全文是否镜像 MinIO，默认 true |
 | `CONTEXT_WINDOW_TOKENS` | 模型窗口回退值，默认 128000 |
 | `CONTEXT_TRIGGER_RATIO` | 自动压缩触发比例，默认 0.8 |
+| `CONTEXT_PRECOMPACT_RATIO` | 回答后异步预压缩水位，默认 0.60 |
 | `CONTEXT_KEEP_MESSAGES` | 压缩后保留消息数，默认 20 |
 | `CONTEXT_TRIM_TOKENS_TO_SUMMARIZE` | 摘要输入 token 上限，默认 4000 |
 | `CONTEXT_AUTO_COMPACT` | 是否自动压缩；false 仅手动 /compact |
@@ -345,6 +347,9 @@ RUN_EVENTS_POSTGRES_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor \
 - 旧前端若读取 state 的 `turn_summary`，需要迁移到 `/runs/{id}/summary` 的 `RunSummary`。
 - 策略 `pattern` 匹配的是参数 JSON 文本，不是语义解析；复杂命令需配合更精确的规则。
 - TokenMeter 用 usage_metadata 回填成本，不实现自定义 tokenizer；摘要模型调用本身暂未计入 usage。
+- 预压缩摘要写入 Postgres 后，下一轮会作为 `lc_source=summarization` 的 HumanMessage 注入；注入后仍由 checkpoint 修剪保留最近 10 轮。
+- 预压缩只在主 Agent 挂载；子 Agent 共享 thread 时不重复覆盖。
+- 后台摘要失败/进程退出时没有 pending，自动 0.8 压缩仍是兜底。
 - `/compact` 需要前端把命令映射到 `compact_conversation`；命令入口未在本仓库实现。
 - 审批中断依赖 LangGraph checkpointer/resume；无 checkpointer 的本地调用不会产生可恢复审批。
 

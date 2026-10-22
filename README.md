@@ -57,7 +57,8 @@ LangGraph interrupt 暂停，审批写 `approval_events`，`GET /runs/{run_id}/a
 
 上下文：`TokenMeterMiddleware` 写 usage 事件；超长工具输出保留头 4KB + 尾 1KB，全文本地
 artifact + MinIO 镜像；压缩使用显式 `CONTEXT_*` trigger/keep，`compact_conversation`
-工具供 `/compact` 调用。
+工具供 `/compact` 调用。回答结束后 token 达到 `CONTEXT_PRECOMPACT_RATIO=0.60` 时后台预生成摘要，
+下一轮只注入摘要；0.8 自动压缩仍作兜底。
 
 ## 服务说明
 

@@ -199,6 +199,8 @@ SummarizationMiddleware（显式 trigger/keep）
 
 - trigger 按模型 profile 最大输入 token × `CONTEXT_TRIGGER_RATIO`；profile 缺失用 `CONTEXT_WINDOW_TOKENS`。
 - `CONTEXT_AUTO_COMPACT=false` 时把自动 trigger 抬到窗口外，只保留手动 compact；手动资格线仍是正常 trigger 的 50%。
+- 回答后 `PostTurnCompactionMiddleware` 在 token ≥ 窗口 60% 时后台生成摘要，写 `pending_context_summaries`；下一轮 `PendingCompactionMiddleware` 只注入摘要，不调摘要模型。
+- 预压缩只在主 Agent 启用；后台失败/进程退出时回落到 0.8 请求内压缩。
 - `usage` 事件优先于 `model_response` 汇总 token；`/runs/{id}/usage` 可查。
 - 工具全文本地 artifact 可读，MinIO 只做持久化镜像；`minio_ref` 供审计/恢复。
 - 摘要模型调用本身暂未计入 usage；`/compact` 命令入口在前端。
@@ -340,6 +342,7 @@ docker compose up -d shared-minio
 | `TOOL_MINIO_ARTIFACTS` | 超长工具全文镜像 MinIO，默认 true |
 | `CONTEXT_WINDOW_TOKENS` / `CONTEXT_TRIGGER_RATIO` / `CONTEXT_KEEP_MESSAGES` | 压缩 trigger/keep |
 | `CONTEXT_TRIM_TOKENS_TO_SUMMARIZE` / `CONTEXT_AUTO_COMPACT` | 摘要输入上限与自动压缩开关 |
+| `CONTEXT_PRECOMPACT_RATIO` | 回答后异步预压缩水位，默认 0.60 |
 | `TOOL_POLICY_ENABLED` | 策略总开关；false 回退 allow |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 连接配置 |
 | `LANGFUSE_TRACE_RETENTION_DAYS` | Trace 保留天数，供清理任务使用 |

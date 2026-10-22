@@ -19,6 +19,7 @@
 | 上下文 | `TokenMeterMiddleware` + 显式 `SummarizationMiddleware`；工具头 4KB/尾 1KB，全文 MinIO；`compact_conversation` 手动压缩 |
 | 韧性/预算 | LiteLLM 负责 provider 重试/fallback/熔断；Agent 侧 `BudgetMiddleware` + `RunBudget` 管 token/deadline；TokenMeter 记录 served_model |
 | 子代理 | `spawn_subagent` 后台 asyncio 任务；`max_depth=1`、超时、取消、只读策略；完成写 subagent 事件 |
+| 记忆 | `agent_memories`（tenant/user） + `memory_*` 工具 + `MemoryMiddleware` 注入预算 |
 
 ## 1. 一句话定位
 
@@ -243,6 +244,21 @@ Agent：MODEL_REQUEST_TIMEOUT_SECONDS + max_retries 固定 0
 - 当前完成事件不自动 resume 父图；前端/调用方用 `check_subagent` 拉取结果或开下一轮。
 - job 状态在进程内，重启会丢未完成任务；不做消息板/角色市场/跨进程 ACP。
 
+### 4.2.6 记忆分层
+
+```text
+短记忆：checkpoint / run_events / history_summary
+长记忆：Postgres agent_memories
+  → memory_search / memory_write / memory_forget
+  → MemoryMiddleware 注入 system prompt（token 预算）
+```
+
+- 长记忆按 `tenant_id + user_id` 隔离；同 key 新值 supersede。
+- 过期不召回；forget 物理删除。
+- 检索是关键词 + confidence + recency + pinned；pgvector/embedding 预留未接。
+- 显式写入为主；异步抽取/冲突消解/敏感信息确认未做。
+- `MEMORY_TENANT` 当前为全局默认，真实多租户应取 auth claim。
+
 ### 4.3 模型链路：Agent → LiteLLM → 模型提供方
 
 ```
@@ -384,6 +400,7 @@ docker compose up -d shared-minio
 | `MODEL_REQUEST_TIMEOUT_SECONDS` | 客户端超时保护；需 ≥ LiteLLM timeout |
 | `RUN_BUDGET_MAX_TOKENS` / `RUN_BUDGET_MAX_SECONDS` / `RUN_BUDGET_MAX_OUTPUT_TOKENS` | 单 run 预算 |
 | `SUBAGENT_MAX_DEPTH` / `SUBAGENT_TIMEOUT_SECONDS` | 子代理深度与超时 |
+| `MEMORY_ENABLED` / `MEMORY_TENANT` / `MEMORY_MAX_INJECT_TOKENS` / `MEMORY_SEARCH_LIMIT` / `MEMORY_MIN_CONFIDENCE` | 长记忆开关、租户、注入与检索 |
 | `TOOL_POLICY_ENABLED` | 策略总开关；false 回退 allow |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 连接配置 |
 | `LANGFUSE_TRACE_RETENTION_DAYS` | Trace 保留天数，供清理任务使用 |

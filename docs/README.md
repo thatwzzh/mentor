@@ -16,6 +16,7 @@
 | 接异步子代理前端 | [frontend/async-subagent-frontend.md](frontend/async-subagent-frontend.md) |
 | 查 2026-10-22 的 §4 复核快照 | [status/section4-audit-2026-10-22.md](status/section4-audit-2026-10-22.md) |
 | 做 golden / 回归评测 | [golden-sessions.md](golden-sessions.md) |
+| 做长记忆/偏好/跨 thread 召回 | [memory-layers.md](memory-layers.md) |
 
 ## 2. 目录结构
 
@@ -26,6 +27,7 @@ docs/
 ├─ architecture.md                # 基础设施拓扑与请求链路
 ├─ config-split.md                # Agent 代码 vs LiteLLM 配置分工
 ├─ golden-sessions.md             # 可重放 golden / 真实模型录制
+├─ memory-layers.md               # 短记忆预算与长记忆
 ├─ launch/
 │  ├─ prelaunch-backlog.md        # 上线前待办
 │  └─ multi-account-hardening.md  # 多账号/多租户改造清单

@@ -252,6 +252,22 @@ Agent 侧
 - 这是进程内实现：job 状态不跨进程/重启；不做消息板、角色市场、跨进程 ACP。
 - 配置：`SUBAGENT_MAX_DEPTH`、`SUBAGENT_TIMEOUT_SECONDS`。
 
+### 4.7 记忆分层
+
+```text
+短记忆：checkpoint / run_events / history_summary
+长记忆：Postgres agent_memories（tenant_id + user_id）
+  → memory_search / memory_write / memory_forget
+  → MemoryMiddleware 按 MEMORY_MAX_INJECT_TOKENS 注入
+```
+
+- 长记忆字段：kind、key、content、confidence、source_thread_id、pinned、embedding（预留）、expires_at、superseded_by。
+- 同 key 新值 supersede 旧值；过期不召回；forget 物理删除。
+- 检索：关键词 + confidence + recency + pinned；当前无 pgvector 向量召回。
+- 写入：仅显式 `memory_write`；异步抽取、去重、冲突消解、敏感信息确认未做。
+- `MEMORY_TENANT` 当前是全局默认；真实多租户应从 auth claims 取 tenant_id。
+- 详细说明见 [memory-layers.md](memory-layers.md)。
+
 ## 5. 配置分层与灰度
 
 ```text
@@ -340,6 +356,8 @@ deploy 自建 backend → finally aclose_run
 | `MODEL_REQUEST_TIMEOUT_SECONDS` | 模型请求超时，默认 120s |
 | `RUN_BUDGET_MAX_TOKENS` / `RUN_BUDGET_MAX_SECONDS` | 单 run token/时间预算；0 不限制 |
 | `SUBAGENT_MAX_DEPTH` | 子代理最大递归深度，默认 1 |
+| `MEMORY_ENABLED` / `MEMORY_TENANT` | 长记忆开关与默认租户 |
+| `MEMORY_MAX_INJECT_TOKENS` / `MEMORY_SEARCH_LIMIT` / `MEMORY_MIN_CONFIDENCE` | 记忆注入预算与检索参数 |
 | `SUBAGENT_TIMEOUT_SECONDS` | 子代理单任务超时，默认 180s |
 | `RUN_BUDGET_MAX_OUTPUT_TOKENS` | 预算预检查预留输出，默认 4096 |
 | `CONTEXT_WINDOW_TOKENS` | 模型窗口回退值，默认 128000 |
@@ -402,6 +420,8 @@ RUN_EVENTS_POSTGRES_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor \
 - 后台摘要失败/进程退出时没有 pending，自动 0.8 压缩仍是兜底。
 - `/compact` 需要前端把命令映射到 `compact_conversation`；命令入口未在本仓库实现。
 - 异步子代理完成只写事件，不自动唤醒已结束的父图；需要前端/调用方用 `check_subagent` 拉取结果。
+- 长记忆当前没有 pgvector；关键词检索对同义/语义问题召回有限。
+- 长记忆写入只有显式工具，没有回合结束异步抽取。
 - 子代理 job 状态在进程内；进程重启会丢失未完成任务，run 事件仍在。
 - 审批中断依赖 LangGraph checkpointer/resume；无 checkpointer 的本地调用不会产生可恢复审批。
 
@@ -416,6 +436,7 @@ RUN_EVENTS_POSTGRES_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor \
 - [章节 4 优化项复核（2026-10-22）](status/section4-audit-2026-10-22.md)
 - [配置分工：Agent vs LiteLLM](config-split.md)
 - [可重放评测：Golden Session](golden-sessions.md)
+- [记忆分层：短记忆与长记忆](memory-layers.md)
 - [异步子代理前端接入说明](frontend/async-subagent-frontend.md)
 
 上线前至少完成 P0-1 ~ P0-6，并通过双用户越权 E2E；4.2.7 指标与 golden 回归通过。

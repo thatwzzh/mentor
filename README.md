@@ -253,3 +253,6 @@ mc admin user svcacct rm shared '<accessKey>'
 
 可重放评测：`uv run mentor golden replay --file tests/golden/sessions/basic_echo.json`；
 脚本化 golden 与真实模型录制说明见 [docs/golden-sessions.md](docs/golden-sessions.md)。
+
+长记忆：`memory_search` / `memory_write` / `memory_forget`，`MemoryMiddleware` 按 token 预算注入；
+说明见 [docs/memory-layers.md](docs/memory-layers.md)。

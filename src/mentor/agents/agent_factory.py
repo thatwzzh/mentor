@@ -36,7 +36,9 @@ from mentor.config.nacos.nacos_schemas import AgentSpec, MCPServerConfig
 from mentor.config.nacos.nacos_skill import ensure_skills, skill_path
 from mentor.middlewares.sandbox_lifecycle import sandbox_lifecycle_middleware
 from mentor.config.context_settings import context_settings
+from mentor.config.memory_settings import memory_settings
 from mentor.middlewares.budget import BudgetMiddleware
+from mentor.middlewares.memory import MemoryMiddleware
 from mentor.middlewares.context import (
     build_compact_tool_middleware,
     build_summarization_middleware,
@@ -137,6 +139,16 @@ class AgentFactory(ABC):
             bundle.register_mcp_specs(specs)
         # 有 deferred 工具时自动补 tool_search / call_tool。
         bundle.add_deferred_tools()
+        # 主 Agent 自动获得长记忆工具（显式写入 + 检索 + 删除）。
+        if self.name == "main_agent" and memory_settings.enabled:
+            from mentor.tools.memory import memory_tool_specs
+
+            for spec in memory_tool_specs():
+                if bundle.registry.has(spec.name):
+                    continue
+                bundle.registry.register(spec)
+                if spec.exposure == "direct" and spec.tool is not None:
+                    bundle.direct_tools.append(spec.tool)
         # 声明了子 Agent 的 Agent 自动获得后台 spawn/check/cancel 工具。
         if agent_config.subagents:
             from mentor.tools.async_subagent import async_subagent_tool_specs
@@ -286,6 +298,7 @@ class AgentFactory(ABC):
             if self.name == "main_agent":
                 middleware.append(PendingCompactionMiddleware())
                 middleware.append(PostTurnCompactionMiddleware(manual_summarization))
+                middleware.append(MemoryMiddleware())
         # 策略在工具执行器外层：deny/prompt 不会触发工具副作用。
         middleware.append(ToolPolicyMiddleware(tool_registry))
         middleware.append(ToolExecutorMiddleware(tool_registry))

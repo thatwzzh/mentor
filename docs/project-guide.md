@@ -66,6 +66,8 @@ src/mentor/
 │  ├─ tool_executor.py        # 工具调用 + 副作用前后事件
 │  ├─ run_events.py           # run/turn/model 生命周期事件
 │  └─ run_projection.py       # 写消息/压缩事件 + 修剪 checkpoint
+├─ policy/
+│  └─ tool_policy.py          # YAML 规则 → allow/prompt/deny
 ├─ events/
 │  ├─ models.py               # RunEvent / RunSummary 前端契约
 │  ├─ context.py              # run/thread/user 上下文
@@ -162,6 +164,26 @@ GET /runs/{run_id}/events               # SSE（Last-Event-ID 重连）
 - Postgres 写失败时落到 `RUN_EVENTS_OUTBOX_DIR`，用 `mentor events replay` 重放。
 - 前端 SSE/卡片验证待前端阶段完成，见 [run-events-frontend-todo.md](run-events-frontend-todo.md)。
 
+### 4.3 工具策略与审批
+
+```text
+ToolPolicyMiddleware（最外层）
+  → ToolPolicy.decide(tool, args, risk)
+    → allow：进入 ToolExecutor
+    → deny：返回 status=error 的 ToolMessage，不执行工具
+    → prompt：approval_events(requested) → interrupt → allow/deny
+      → allow：进入 ToolExecutor
+      → deny：返回 policy 错误
+```
+
+- 规则文件：`TOOL_POLICY_FILE`，默认 `config/tool_policy.yaml`；`tool` 支持 glob，`pattern` 是参数 JSON 正则。
+- 决策：`allow / prompt / deny`；未命中按 `ToolSpec.risk` 默认值，`destructive` 默认 prompt。
+- 单 run 审批上限：`max_prompts_per_run`，超过直接 deny。
+- 审批审计：`approval_events`（actor、tool、args_hash、decision、reason、ts），`GET /runs/{run_id}/approvals` 可查。
+- 审批存储不可用时 **fail-closed**，不执行 prompt 工具。
+- `TOOL_POLICY_ENABLED=false` 可整体回退到 allow；规则开关关闭后行为可回退。
+- `interrupt` 需要 checkpointer + resume；前端审批卡待前端阶段验证。
+
 ## 5. 配置分层与灰度
 
 ```text
@@ -245,6 +267,8 @@ deploy 自建 backend → finally aclose_run
 | `RUN_EVENTS_MAX_TOOL_CHARS` | 保留轮次中的工具输出上限，默认 500 |
 | `RUN_EVENTS_SUMMARY_MAX_CHARS` | 历史摘要上限，默认 4000 |
 | `RUN_EVENTS_OUTBOX_DIR` | Postgres 写入失败时的 JSONL outbox，默认 `/tmp/mentor-run-events-outbox` |
+| `TOOL_POLICY_FILE` | 工具策略 YAML，默认 `config/tool_policy.yaml` |
+| `TOOL_POLICY_ENABLED` | 策略总开关，设为 false 回退 allow |
 
 ## 8. 测试与发布
 
@@ -287,6 +311,8 @@ RUN_EVENTS_POSTGRES_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor \
 - `run_events` 使用 Postgres；多 worker 共享同一 `RUN_EVENTS_DSN`，事件表要按保留策略清理。
 - `GET /runs/{id}/summary` 的 run_id 优先取 LangGraph config；缺失时回退 thread_id，多个 run 共用 thread 时会合并事件。
 - 旧前端若读取 state 的 `turn_summary`，需要迁移到 `/runs/{id}/summary` 的 `RunSummary`。
+- 策略 `pattern` 匹配的是参数 JSON 文本，不是语义解析；复杂命令需配合更精确的规则。
+- 审批中断依赖 LangGraph checkpointer/resume；无 checkpointer 的本地调用不会产生可恢复审批。
 
 ## 10. 上线前：多账号 / 多租户
 

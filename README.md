@@ -51,6 +51,10 @@ make dev-check
 事件表使用 Postgres（compose 的 `mentor-postgres`，默认 `RUN_EVENTS_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor`）。
 Postgres 写失败会落 `RUN_EVENTS_OUTBOX_DIR`，可用 `mentor events replay` 重放。
 
+工具策略：`config/tool_policy.yaml` 按工具名/参数正则判定 `allow/prompt/deny`；prompt 通过
+LangGraph interrupt 暂停，审批写 `approval_events`，`GET /runs/{run_id}/approvals` 可查。
+`TOOL_POLICY_ENABLED=false` 可整体回退。
+
 ## 服务说明
 
 > 以下账号密码均为本地开发默认值，请勿用于生产环境。

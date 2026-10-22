@@ -35,6 +35,7 @@ from mentor.config.nacos.nacos_schemas import AgentSpec, MCPServerConfig
 from mentor.config.nacos.nacos_skill import ensure_skills, skill_path
 from mentor.middlewares.sandbox_lifecycle import sandbox_lifecycle_middleware
 from mentor.middlewares.tool_executor import ToolExecutorMiddleware
+from mentor.middlewares.tool_policy import ToolPolicyMiddleware
 from mentor.tools import ToolBundle, ToolSpec, get_tool_bundle
 from mentor.tools.specs import ToolRegistry
 from mentor.utils.create_model import create_model
@@ -240,7 +241,8 @@ class AgentFactory(ABC):
     ) -> Runnable:
         backend = self.get_backend()
         middleware = list(self.get_middlewares())
-        # 所有工具调用先经过统一执行器，再做 sandbox 生命周期收尾。
+        # 策略在工具执行器外层：deny/prompt 不会触发工具副作用。
+        middleware.append(ToolPolicyMiddleware(tool_registry))
         middleware.append(ToolExecutorMiddleware(tool_registry))
         if isinstance(backend, SandboxBackend):
             # run 结束后关闭当前 (user, thread) 的沙箱连接；异常路径由 aexecute 兜底。

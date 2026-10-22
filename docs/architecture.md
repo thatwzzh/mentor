@@ -14,6 +14,7 @@
 | 沙箱 | 一次 run 内按 `(user, thread)` 复用连接；Agent 结束关闭；PVC 名 `tenant-sha256(user)[:12]`；支持资源/网络策略与空闲回收 |
 | 工具 | `ToolSpec` + `ToolRegistry` + `ToolExecutor`；所有工具统一限时/截断/错误分类；MCP 默认 deferred |
 | 会话 | `run_events` 事件表 + `run_projection`；checkpoint 只留最近 10 轮 + 历史摘要 + 产物列表；`GET /runs/{id}/summary` 投影 |
+| 策略 | `ToolPolicy` + `ToolPolicyMiddleware`；`approval_events` 审计；prompt 中断、deny 不执行、单 run 上限 |
 
 ## 1. 一句话定位
 
@@ -150,6 +151,7 @@ Agent 工具调用
 - 输出超过 `max_output_chars`（默认 8000）时落盘到 `TOOL_ARTIFACT_DIR`，返回 `artifact://`；`read_artifact` 自动暴露。
 - MCP 默认 `deferred`：不直接进 prompt；模型先 `tool_search`，再 `call_tool`。需要旧行为时配置 `exposure: direct`。
 - MCP server 可声明 `auth`、`timeout_seconds`、`allowed_tools`、`exposure`、`risk`；`auth` 属于敏感配置。
+- 策略层位于工具执行器外层：YAML 规则按工具名/参数 JSON 正则判定 `allow/prompt/deny`；prompt 通过 `interrupt` 暂停，审批结果写 `approval_events`，单 run 有次数上限。
 
 ### 4.2.2 会话投影：checkpoint 最小化
 
@@ -310,6 +312,8 @@ docker compose up -d shared-minio
 | `RUN_EVENTS_KEEP_LAST_TURNS` | checkpoint 保留最近轮数，默认 10 |
 | `RUN_EVENTS_MAX_TOOL_CHARS` | 保留轮次中的工具输出上限，默认 500 |
 | `RUN_EVENTS_OUTBOX_DIR` | Postgres 写入失败时的 JSONL outbox，默认 `/tmp/mentor-run-events-outbox` |
+| `TOOL_POLICY_FILE` | 工具策略 YAML，默认 `config/tool_policy.yaml` |
+| `TOOL_POLICY_ENABLED` | 策略总开关；false 回退 allow |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 连接配置 |
 | `LANGFUSE_TRACE_RETENTION_DAYS` | Trace 保留天数，供清理任务使用 |
 | `BENCHMARK_AGENT_SERVER` / `BENCHMARK_USER_ID` / `BENCHMARK_GRAPH_ID` | 评测任务连接 Agent 的参数 |
@@ -372,6 +376,8 @@ docker compose up -d shared-minio
 - `run_events` 使用 Postgres；多 worker 共享同一 DSN，事件表需按保留策略清理。
 - `run_id` 优先取 LangGraph config；缺失时回退 thread_id，多 run 共用 thread 时事件会合并。
 - 旧前端读取 state `turn_summary` 的，需要迁移到 `RunSummary`。
+- 策略正则匹配参数 JSON，不是命令语义；复杂命令需要更精确的规则。
+- 审批中断依赖 checkpointer/resume；前端审批卡未验证。
 - 多账号/多租户上线前必须完成真实鉴权、Assistants owner 过滤、MinIO 凭据隔离、LiteLLM 配额等改造；完整清单见 [multi-account-hardening.md](multi-account-hardening.md)；4.2.5/4.2.7 的上线前待办见 [prelaunch-backlog.md](prelaunch-backlog.md)。
 
 ## 9. 一个具体请求的完整路径

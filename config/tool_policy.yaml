@@ -1,0 +1,25 @@
+# 工具策略：规则按顺序匹配，第一条命中生效。
+# tool 支持 glob；pattern 是工具参数 JSON 的正则（不区分大小写）。
+enabled: true
+max_prompts_per_run: 3
+
+defaults:
+  read: allow
+  write: allow
+  external: allow
+  destructive: prompt
+
+rules:
+  - tool: execute
+    pattern: 'rm\s+-rf\s+/(?=[\s"]|$)'
+    decision: deny
+    reason: 禁止递归删除根目录
+
+  - tool: execute
+    pattern: 'rm\s+-rf'
+    decision: prompt
+    reason: 递归删除需要人工确认
+
+  - tool: deploy
+    decision: prompt
+    reason: deploy 会写入产物桶

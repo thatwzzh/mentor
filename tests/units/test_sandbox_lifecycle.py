@@ -166,4 +166,4 @@ def test_create_agent_attaches_sandbox_lifecycle_middleware(monkeypatch):
 
     asyncio.run(scenario())
     assert isinstance(captured["backend"], SandboxBackend)
-    assert len(captured["middleware"]) == 2
+    assert len(captured["middleware"]) == 3

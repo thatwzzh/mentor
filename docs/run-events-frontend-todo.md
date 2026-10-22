@@ -11,6 +11,7 @@
 | `GET /runs/{run_id}/trace?after_seq=0` | 详情：status、last_completed_tool、pending_tools、events |
 | `GET /runs/{run_id}/usage?after_seq=0` | token_usage、compression |
 | `GET /runs/{run_id}/events` | SSE 实时事件；支持 `Last-Event-ID` 重连 |
+| `GET /runs/{run_id}/approvals` | 审批审计（approval_events） |
 
 所有接口要求 `Authorization: Bearer <token>`，并按 user 过滤。
 
@@ -29,7 +30,8 @@
   - `compression`：上下文压缩提示
 - [ ] `RunSummary.status`：`running / finished / incomplete / unknown`
 - [ ] `pending_tools`：展示未完成工具；崩溃/断线后提示“最后完成工具”
-- [ ] 审批交互：`ask_user_question` 的 resume 流程与事件卡对齐。
+- [ ] 审批交互：`tool_approval` interrupt 的 resume；审批卡展示 tool/args/reason，调用 `/approvals` 对账。
+- [ ] 策略 deny/allow 的错误卡：区分 `error_kind=policy` 与工具失败。
 - [ ] 失败/重连测试：kill 进程、断网、重复 seq、空 run、404。
 - [ ] 前端 E2E：工具卡/审批卡/产物卡与 `run_events` 同源，不另建一套消息口径。
 

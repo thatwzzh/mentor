@@ -20,6 +20,7 @@
 | 韧性/预算 | LiteLLM 负责 provider 重试/fallback/熔断；Agent 侧 `BudgetMiddleware` + `RunBudget` 管 token/deadline；TokenMeter 记录 served_model |
 | 子代理 | `spawn_subagent` 后台 asyncio 任务；`max_depth=1`、超时、取消、只读策略；完成写 subagent 事件 |
 | 记忆 | `agent_memories`（tenant/user） + `memory_*` 工具 + `MemoryMiddleware` 注入预算 |
+| 沙箱档位 | `AgentModelConfig.profile` → `sandbox_profiles`；资源/超时/网络/步数/工具/输出护栏 |
 
 ## 1. 一句话定位
 
@@ -259,6 +260,20 @@ Agent：MODEL_REQUEST_TIMEOUT_SECONDS + max_retries 固定 0
 - 显式写入为主；异步抽取/冲突消解/敏感信息确认未做。
 - `MEMORY_TENANT` 当前为全局默认，真实多租户应取 auth claim。
 
+### 4.2.7 沙箱能力档位
+
+```text
+model.profile
+  → sandbox_profiles[profile]
+  → SandboxBackend（image/cpu/memory/network/TTL）
+  → SandboxProfileGuard（max_steps/tool_calls/parallel/output）
+```
+
+- profile 是能力档位，不是模型名分支；未配置回落到 `sandbox_config`。
+- `max_steps` 超限终止；`max_tool_calls` 返回 policy 错误；`max_parallel_tools` semaphore。
+- 安全基线不放宽：profile 只覆盖资源与限额，不替代网络/审批策略。
+- 预热池/快照与 p95/OOM 自动调参未做。
+
 ### 4.3 模型链路：Agent → LiteLLM → 模型提供方
 
 ```
@@ -401,6 +416,7 @@ docker compose up -d shared-minio
 | `RUN_BUDGET_MAX_TOKENS` / `RUN_BUDGET_MAX_SECONDS` / `RUN_BUDGET_MAX_OUTPUT_TOKENS` | 单 run 预算 |
 | `SUBAGENT_MAX_DEPTH` / `SUBAGENT_TIMEOUT_SECONDS` | 子代理深度与超时 |
 | `MEMORY_ENABLED` / `MEMORY_TENANT` / `MEMORY_MAX_INJECT_TOKENS` / `MEMORY_SEARCH_LIMIT` / `MEMORY_MIN_CONFIDENCE` | 长记忆开关、租户、注入与检索 |
+| Nacos `sandbox_profiles` + `model.profile` | 沙箱资源、超时、网络与步数/工具限额 |
 | `TOOL_POLICY_ENABLED` | 策略总开关；false 回退 allow |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 连接配置 |
 | `LANGFUSE_TRACE_RETENTION_DAYS` | Trace 保留天数，供清理任务使用 |

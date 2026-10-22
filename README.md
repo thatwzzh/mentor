@@ -256,3 +256,6 @@ mc admin user svcacct rm shared '<accessKey>'
 
 长记忆：`memory_search` / `memory_write` / `memory_forget`，`MemoryMiddleware` 按 token 预算注入；
 说明见 [docs/memory-layers.md](docs/memory-layers.md)。
+
+沙箱按 `model.profile` 选 `sandbox_profiles` 能力档位，配置资源/超时/网络与
+步数/工具/输出护栏；说明见 [docs/sandbox-profiles.md](docs/sandbox-profiles.md)。

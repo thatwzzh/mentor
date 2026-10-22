@@ -27,7 +27,8 @@ from opensandbox.exceptions import SandboxApiException
 from opensandbox.models.execd import RunCommandOpts
 
 from mentor.config.nacos.nacos_config import get_config
-from mentor.config.nacos.nacos_schemas import OpenSandboxConfig
+from mentor.config.nacos.nacos_schemas import OpenSandboxConfig, SandboxProfile
+from mentor.config.sandbox_profiles import to_open_config
 from mentor.config.sandbox_settings import sandbox_settings
 from mentor.utils.sandbox import SHARED_VOLUME_NAME, VolumeConfig, get_sandbox
 from mentor.utils.shared import get_thread_id, get_user_id
@@ -68,11 +69,17 @@ class SandboxBackend(BaseSandbox):
 
     id_getter: IdGetter
 
-    def __init__(self, id_getter: IdGetter | None = None) -> None:
+    def __init__(
+        self,
+        id_getter: IdGetter | None = None,
+        profile: SandboxProfile | None = None,
+    ) -> None:
         super().__init__()
         if not id_getter:
             id_getter = get_user_id
         self.id_getter = id_getter
+        self.profile = profile
+        self.profile_config = to_open_config(profile) if profile else None
         # key = (user_id, thread_id)；在事件循环线程内读写，dict 操作只用轻量锁保护。
         self._sandboxes: dict[tuple[str, str], _SandboxEntry] = {}
         self._cache_locks: dict[tuple[str, str], asyncio.Lock] = {}
@@ -119,7 +126,9 @@ class SandboxBackend(BaseSandbox):
             await self._close_idle()
             # sandbox_id 仍按 user_id 存入 Store，兼容已有工作区与集成测试。
             sandbox = await get_sandbox(
-                self.id, volume_configs=self._get_volume_configs()
+                self.id,
+                volume_configs=self._get_volume_configs(),
+                sandbox_config=self.profile_config,
             )
             with self._cache_guard:
                 self._sandboxes[key] = _SandboxEntry(
@@ -180,7 +189,9 @@ class SandboxBackend(BaseSandbox):
         self, command: str, *, timeout: int | None = None
     ) -> ExecuteResponse:
         # sandbox_config 由 Nacos 下发并经 func_cache 缓存；timeout<0 表示使用服务端默认值。
-        config = await get_config("sandbox_config", OpenSandboxConfig)
+        config = self.profile_config or await get_config(
+            "sandbox_config", OpenSandboxConfig
+        )
         if timeout is None or timeout < 0:
             timeout = config.command_timeout_seconds
         sandbox = await self._get_or_create_sandbox()

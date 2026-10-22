@@ -128,6 +128,7 @@ async def get_sandbox(
     key: str | None = None,
     store: BaseStore | None = None,
     volume_configs: list[VolumeConfig] | None = None,
+    sandbox_config: OpenSandboxConfig | None = None,
 ):
     # 参数归一化
     if key is None:
@@ -147,7 +148,8 @@ async def get_sandbox(
                 )
             _logger.warning("使用 InMemoryStore 记录 sandbox_id；仅限本地开发/测试")
             store = _MEMORY_STORE
-    sandbox_config = await get_config("sandbox_config", OpenSandboxConfig)
+    if sandbox_config is None:
+        sandbox_config = await get_config("sandbox_config", OpenSandboxConfig)
     connection_config = ConnectionConfig(
         domain=sandbox_settings.domain,
         api_key=sandbox_settings.api_key,

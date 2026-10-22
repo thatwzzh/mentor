@@ -11,6 +11,8 @@ class AgentModelConfig(BaseModel):
     thinking: bool = Field(default=True)
     temperature: float | None = Field(default=None)
     top_p: float | None = Field(default=None)
+    # 能力档位，对应 AgentSpec.sandbox_profiles 的 key；不要按模型名 fork Backend。
+    profile: str = Field(default="balanced")
 
 
 class MCPServerConfig(BaseModel):
@@ -28,11 +30,30 @@ class MCPServerConfig(BaseModel):
     risk: Literal["read", "write", "external", "destructive"] = "external"
 
 
+class SandboxProfile(BaseModel):
+    """按模型能力档位配置沙箱；字段缺省时回落到 sandbox_config。"""
+
+    image: str | None = None
+    cpu: str | None = None
+    memory_mb: int | None = Field(default=None, gt=0)
+    timeout_seconds: int = Field(default=600, gt=0)
+    ready_timeout_seconds: int = Field(default=180, gt=0)
+    command_timeout_seconds: int = Field(default=90, gt=0)
+    network_default_action: Literal["allow", "deny"] | None = None
+    network_allow: list[str] = Field(default_factory=list)
+    max_steps: int = Field(default=30, gt=0)
+    max_tool_calls: int = Field(default=20, gt=0)
+    max_parallel_tools: int = Field(default=1, gt=0)
+    max_output_chars: int = Field(default=8_000, gt=0)
+
+
 class AgentSpec(BaseModel):
     name: str
     description: str = Field(default="")
     system_prompt: str = Field(default="")
     model: AgentModelConfig = Field(default_factory=AgentModelConfig)
+    # key 是 model.profile；未声明时回落到 sandbox_config。
+    sandbox_profiles: dict[str, SandboxProfile] = Field(default_factory=dict)
     mcps: dict[str, MCPServerConfig] = Field(default_factory=dict)
     tools: list[str] = Field(default_factory=list)
     subagents: list[str] = Field(default_factory=list)

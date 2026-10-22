@@ -268,6 +268,21 @@ Agent 侧
 - `MEMORY_TENANT` 当前是全局默认；真实多租户应从 auth claims 取 tenant_id。
 - 详细说明见 [memory-layers.md](memory-layers.md)。
 
+### 4.8 沙箱能力档位
+
+```text
+AgentModelConfig.profile
+  → AgentSpec.sandbox_profiles[profile]
+  → SandboxBackend（image/cpu/memory/network/TTL）
+  → SandboxProfileGuard（steps/tool calls/parallel/output）
+```
+
+- profile 按能力档位：`fast / balanced / reasoning / browser / data`；不按模型名 fork。
+- 未显式字段回落全局 `sandbox_config`；`AgentModelConfig.profile` 默认 `balanced`。
+- 护栏：`max_steps` 超限终止；`max_tool_calls` 返回 policy 错误；`max_parallel_tools` 用 semaphore；`max_output_chars` 作为工具输出上限。
+- 不做预热池/快照、不做 Langfuse 自动调参。
+- 配置示例与迁移注意见 [sandbox-profiles.md](sandbox-profiles.md)。
+
 ## 5. 配置分层与灰度
 
 ```text
@@ -357,6 +372,7 @@ deploy 自建 backend → finally aclose_run
 | `RUN_BUDGET_MAX_TOKENS` / `RUN_BUDGET_MAX_SECONDS` | 单 run token/时间预算；0 不限制 |
 | `SUBAGENT_MAX_DEPTH` | 子代理最大递归深度，默认 1 |
 | `MEMORY_ENABLED` / `MEMORY_TENANT` | 长记忆开关与默认租户 |
+| Nacos `sandbox_profiles` | 沙箱能力档位（资源/超时/网络/限额） |
 | `MEMORY_MAX_INJECT_TOKENS` / `MEMORY_SEARCH_LIMIT` / `MEMORY_MIN_CONFIDENCE` | 记忆注入预算与检索参数 |
 | `SUBAGENT_TIMEOUT_SECONDS` | 子代理单任务超时，默认 180s |
 | `RUN_BUDGET_MAX_OUTPUT_TOKENS` | 预算预检查预留输出，默认 4096 |
@@ -422,6 +438,8 @@ RUN_EVENTS_POSTGRES_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor \
 - 异步子代理完成只写事件，不自动唤醒已结束的父图；需要前端/调用方用 `check_subagent` 拉取结果。
 - 长记忆当前没有 pgvector；关键词检索对同义/语义问题召回有限。
 - 长记忆写入只有显式工具，没有回合结束异步抽取。
+- 沙箱 profile 的 `max_steps`/`max_tool_calls` 是硬限制；旧 Agent 若任务链更长，先在 Nacos 调 profile。
+- 已存在 sandbox 连接不会因 profile 变化自动重建；等 TTL/下次创建。
 - 子代理 job 状态在进程内；进程重启会丢失未完成任务，run 事件仍在。
 - 审批中断依赖 LangGraph checkpointer/resume；无 checkpointer 的本地调用不会产生可恢复审批。
 

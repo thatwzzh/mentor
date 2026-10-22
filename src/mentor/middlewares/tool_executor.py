@@ -2,6 +2,7 @@
 
 import logging
 import time
+from dataclasses import replace
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import ToolMessage
@@ -21,12 +22,16 @@ class ToolExecutorMiddleware(AgentMiddleware):
     """覆盖内置、业务、MCP 工具；未登记工具按默认契约处理。"""
 
     def __init__(
-        self, registry: ToolRegistry, writer: EventWriter = append_event
+        self,
+        registry: ToolRegistry,
+        writer: EventWriter = append_event,
+        max_output_chars: int | None = None,
     ) -> None:
         super().__init__()
         self.registry = registry
         self.executor = ToolExecutor()
         self.writer = writer
+        self.max_output_chars = max_output_chars
 
     def _write(self, event: RunEvent) -> None:
         try:
@@ -68,6 +73,11 @@ class ToolExecutorMiddleware(AgentMiddleware):
             )
         )
         spec = self.registry.get(name) or self.registry.default(name)
+        if (
+            self.max_output_chars
+            and spec.max_output_chars > self.max_output_chars
+        ):
+            spec = replace(spec, max_output_chars=self.max_output_chars)
         result = await self.executor.execute_handler(spec, request, handler)
         envelope = getattr(result, "envelope", lambda: {})()
         logger.info(

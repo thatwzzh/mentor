@@ -17,6 +17,7 @@
 | 查 2026-10-22 的 §4 复核快照 | [status/section4-audit-2026-10-22.md](status/section4-audit-2026-10-22.md) |
 | 做 golden / 回归评测 | [golden-sessions.md](golden-sessions.md) |
 | 做长记忆/偏好/跨 thread 召回 | [memory-layers.md](memory-layers.md) |
+| 调沙箱资源/超时/步数 | [sandbox-profiles.md](sandbox-profiles.md) |
 
 ## 2. 目录结构
 
@@ -28,6 +29,7 @@ docs/
 ├─ config-split.md                # Agent 代码 vs LiteLLM 配置分工
 ├─ golden-sessions.md             # 可重放 golden / 真实模型录制
 ├─ memory-layers.md               # 短记忆预算与长记忆
+├─ sandbox-profiles.md            # 沙箱能力档位与护栏
 ├─ launch/
 │  ├─ prelaunch-backlog.md        # 上线前待办
 │  └─ multi-account-hardening.md  # 多账号/多租户改造清单

@@ -35,8 +35,15 @@ from mentor.config.nacos.nacos_agent_spec import get_agent_spec
 from mentor.config.nacos.nacos_schemas import AgentSpec, MCPServerConfig
 from mentor.config.nacos.nacos_skill import ensure_skills, skill_path
 from mentor.middlewares.sandbox_lifecycle import sandbox_lifecycle_middleware
+from mentor.middlewares.sandbox_profile import SandboxProfileGuardMiddleware
 from mentor.config.context_settings import context_settings
 from mentor.config.memory_settings import memory_settings
+from mentor.config.sandbox_profiles import (
+    get_current_sandbox_profile,
+    reset_current_sandbox_profile,
+    resolve_sandbox_profile,
+    set_current_sandbox_profile,
+)
 from mentor.middlewares.budget import BudgetMiddleware
 from mentor.middlewares.memory import MemoryMiddleware
 from mentor.middlewares.context import (
@@ -247,15 +254,20 @@ class AgentFactory(ABC):
             model = self._get_model(agent_config)
             tool_bundle = await self._get_tools(agent_config)
             subagents = await self._build_subagents(subagent_specs, label)
-            agent = await self.create_agent(
-                model=model,
-                system_prompt=agent_config.system_prompt,
-                tools=tool_bundle.direct_tools,
-                tool_registry=tool_bundle.registry,
-                subagents=subagents,
-                skills=agent_config.skills,
-                spec_hash=spec_hash,
-            )
+            sandbox_profile = await resolve_sandbox_profile(agent_config)
+            profile_token = set_current_sandbox_profile(sandbox_profile)
+            try:
+                agent = await self.create_agent(
+                    model=model,
+                    system_prompt=agent_config.system_prompt,
+                    tools=tool_bundle.direct_tools,
+                    tool_registry=tool_bundle.registry,
+                    subagents=subagents,
+                    skills=agent_config.skills,
+                    spec_hash=spec_hash,
+                )
+            finally:
+                reset_current_sandbox_profile(profile_token)
             self._cache.put(self.name, spec_hash, agent)
             logger.info(
                 "agent compiled: %s spec_hash=%s", self.name, spec_hash[:12]
@@ -299,9 +311,21 @@ class AgentFactory(ABC):
                 middleware.append(PendingCompactionMiddleware())
                 middleware.append(PostTurnCompactionMiddleware(manual_summarization))
                 middleware.append(MemoryMiddleware())
+        sandbox_profile = get_current_sandbox_profile()
+        if sandbox_profile is not None:
+            middleware.append(SandboxProfileGuardMiddleware(sandbox_profile))
         # 策略在工具执行器外层：deny/prompt 不会触发工具副作用。
         middleware.append(ToolPolicyMiddleware(tool_registry))
-        middleware.append(ToolExecutorMiddleware(tool_registry))
+        middleware.append(
+            ToolExecutorMiddleware(
+                tool_registry,
+                max_output_chars=(
+                    sandbox_profile.max_output_chars
+                    if sandbox_profile is not None
+                    else None
+                ),
+            )
+        )
         if isinstance(backend, SandboxBackend):
             # run 结束后关闭当前 (user, thread) 的沙箱连接；异常路径由 aexecute 兜底。
             middleware.append(sandbox_lifecycle_middleware(backend))
@@ -340,7 +364,7 @@ class AgentFactory(ABC):
         self._cache.clear()
 
     def get_backend(self) -> BackendProtocol | None:
-        return SandboxBackend()
+        return SandboxBackend(profile=get_current_sandbox_profile())
 
     def get_middlewares(self) -> Sequence[AgentMiddleware]:
         return []

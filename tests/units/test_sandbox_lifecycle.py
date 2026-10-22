@@ -38,7 +38,7 @@ def test_backend_reuses_one_sandbox_for_concurrent_tools(monkeypatch):
     fake = FakeSandbox()
     calls: list[str] = []
 
-    async def fake_get_sandbox(key: str, volume_configs=None):
+    async def fake_get_sandbox(key: str, volume_configs=None, sandbox_config=None):
         calls.append(key)
         return fake
 
@@ -117,7 +117,7 @@ def test_get_sandbox_rejects_memory_store(monkeypatch):
 def test_aexecute_closes_sandbox_on_command_error(monkeypatch):
     fake = FakeSandbox(command_error=RuntimeError("channel down"))
 
-    async def fake_get_sandbox(key: str, volume_configs=None):
+    async def fake_get_sandbox(key: str, volume_configs=None, sandbox_config=None):
         return fake
 
     async def fake_get_config(*args, **kwargs):

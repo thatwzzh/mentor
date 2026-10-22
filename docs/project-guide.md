@@ -205,7 +205,7 @@ SummarizationMiddleware（显式配置）
 ```
 
 - `CONTEXT_WINDOW_TOKENS` 是模型 profile 缺失时的回退；有 `max_input_tokens` 时优先用 profile。
-- `CONTEXT_AUTO_COMPACT=false` 时自动触发阈值抬高，只保留 `compact_conversation` 手动压缩。
+- `CONTEXT_AUTO_COMPACT=false` 时自动触发阈值抬高，只保留 `compact_conversation` 手动压缩；手动压缩仍需达到正常 trigger 的 50%（默认约 51,200 tokens）。
 - 工具输出超过阈值时保留头 4KB + 尾 1KB；全文写本地 artifact，并镜像 MinIO，envelope 带 `minio_ref`。
 - `/compact` 由前端映射到 `compact_conversation` 工具；压缩结果写 `compression` 事件。
 - Token 成本通过 `GET /runs/{run_id}/usage` 查询；usage 事件优先于 model_response 汇总。

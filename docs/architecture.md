@@ -198,7 +198,7 @@ SummarizationMiddleware（显式 trigger/keep）
 要点：
 
 - trigger 按模型 profile 最大输入 token × `CONTEXT_TRIGGER_RATIO`；profile 缺失用 `CONTEXT_WINDOW_TOKENS`。
-- `CONTEXT_AUTO_COMPACT=false` 时把自动 trigger 抬到窗口外，只保留手动 compact。
+- `CONTEXT_AUTO_COMPACT=false` 时把自动 trigger 抬到窗口外，只保留手动 compact；手动资格线仍是正常 trigger 的 50%。
 - `usage` 事件优先于 `model_response` 汇总 token；`/runs/{id}/usage` 可查。
 - 工具全文本地 artifact 可读，MinIO 只做持久化镜像；`minio_ref` 供审计/恢复。
 - 摘要模型调用本身暂未计入 usage；`/compact` 命令入口在前端。

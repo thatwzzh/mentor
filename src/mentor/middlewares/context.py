@@ -21,12 +21,18 @@ def context_window_for(model: Any) -> int:
     return context_settings.window_tokens
 
 
-def build_summarization_middleware(model: Any, backend: Any) -> SummarizationMiddleware:
-    """构建显式 trigger/keep 的压缩中间件；同名替换 DeepAgents 默认实现。"""
+def build_summarization_middleware(
+    model: Any, backend: Any, *, auto: bool | None = None
+) -> SummarizationMiddleware:
+    """构建显式 trigger/keep 的压缩中间件；同名替换 DeepAgents 默认实现。
+
+    auto=False 只抬高自动触发阈值，不影响手动 compact 的 50% 资格线。
+    """
     window = context_window_for(model)
+    auto_enabled = context_settings.auto_compact if auto is None else auto
     trigger_tokens = (
         max(1, int(window * context_settings.trigger_ratio))
-        if context_settings.auto_compact
+        if auto_enabled
         else window * 10
     )
     return SummarizationMiddleware(

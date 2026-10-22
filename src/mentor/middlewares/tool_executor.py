@@ -7,6 +7,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
+from mentor.budget.run_budget import get_run_budget
 from mentor.events.context import runtime_ids
 from mentor.events.models import RunEvent
 from mentor.events.writer import EventWriter, append_event
@@ -43,6 +44,9 @@ class ToolExecutorMiddleware(AgentMiddleware):
         request,
         handler,
     ) -> ToolMessage | Command:
+        budget = get_run_budget()
+        if budget is not None:
+            budget.check_deadline()
         tool_call = getattr(request, "tool_call", {}) or {}
         name = tool_call.get("name", "")
         run_id, thread_id, user_id = runtime_ids()

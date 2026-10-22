@@ -60,6 +60,10 @@ artifact + MinIO 镜像；压缩使用显式 `CONTEXT_*` trigger/keep，`compact
 工具供 `/compact` 调用。回答结束后 token 达到 `CONTEXT_PRECOMPACT_RATIO=0.60` 时后台预生成摘要，
 下一轮只注入摘要；0.8 自动压缩仍作兜底。
 
+韧性：LiteLLM 负责 provider 重试/fallback/熔断；Agent 侧显式设置 `MODEL_REQUEST_TIMEOUT_SECONDS`，
+默认 `MODEL_MAX_RETRIES=0` 避免重复重试。`RUN_BUDGET_MAX_TOKENS/MAX_SECONDS` 提供单 run 预算，
+超限抛 `BudgetExceeded` 终止；子 Agent 共享父 run 预算。
+
 ## 服务说明
 
 > 以下账号密码均为本地开发默认值，请勿用于生产环境。

@@ -16,6 +16,7 @@
 | 会话 | `run_events` 事件表 + `run_projection`；checkpoint 只留最近 10 轮 + 历史摘要 + 产物列表；`GET /runs/{id}/summary` 投影 |
 | 策略 | `ToolPolicy` + `ToolPolicyMiddleware`；`approval_events` 审计；prompt 中断、deny 不执行、单 run 上限 |
 | 上下文 | `TokenMeterMiddleware` + 显式 `SummarizationMiddleware`；工具头 4KB/尾 1KB，全文 MinIO；`compact_conversation` 手动压缩 |
+| 韧性/预算 | LiteLLM 负责 provider 重试/fallback/熔断；Agent 侧 `BudgetMiddleware` + `RunBudget` 管 token/deadline；TokenMeter 记录 served_model |
 
 ## 1. 一句话定位
 
@@ -207,6 +208,22 @@ SummarizationMiddleware（显式 trigger/keep）
 - 工具全文本地 artifact 可读，MinIO 只做持久化镜像；`minio_ref` 供审计/恢复。
 - 摘要模型调用本身暂未计入 usage；`/compact` 命令入口在前端。
 
+### 4.2.4 模型韧性与单 run 预算
+
+```text
+LiteLLM：provider retry / fallback / cooldown
+Agent：MODEL_REQUEST_TIMEOUT_SECONDS + MODEL_MAX_RETRIES=0
+       BudgetMiddleware：token/deadline 预检查
+       ToolExecutor：deadline 检查
+       TokenMeter：usage + served_model
+```
+
+- 重试/fallback/熔断以 LiteLLM 为准，Agent 不重复实现；`MODEL_MAX_RETRIES=0` 避免放大。
+- `RunBudget` 在模型调用前检查 token 与 deadline；超限抛 `BudgetExceeded` 终止 run。
+- 子 Agent 通过 ContextVar 共享父 run 预算，避免后台子任务无限烧 token。
+- 单 run 成本账单级控制仍使用 LiteLLM key/team budget；Agent 预算只防单 run 失控。
+- 当前 `litellm-config.yaml` 只有 session_affinity，fallback/cooldown 需要显式补配置。
+
 ### 4.3 模型链路：Agent → LiteLLM → 模型提供方
 
 ```
@@ -345,6 +362,8 @@ docker compose up -d shared-minio
 | `CONTEXT_WINDOW_TOKENS` / `CONTEXT_TRIGGER_RATIO` / `CONTEXT_KEEP_MESSAGES` | 压缩 trigger/keep |
 | `CONTEXT_TRIM_TOKENS_TO_SUMMARIZE` / `CONTEXT_AUTO_COMPACT` | 摘要输入上限与自动压缩开关 |
 | `CONTEXT_PRECOMPACT_RATIO` | 回答后异步预压缩水位，默认 0.60 |
+| `MODEL_REQUEST_TIMEOUT_SECONDS` / `MODEL_MAX_RETRIES` | 模型超时与 Agent 侧重试边界 |
+| `RUN_BUDGET_MAX_TOKENS` / `RUN_BUDGET_MAX_SECONDS` / `RUN_BUDGET_MAX_OUTPUT_TOKENS` | 单 run 预算 |
 | `TOOL_POLICY_ENABLED` | 策略总开关；false 回退 allow |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 连接配置 |
 | `LANGFUSE_TRACE_RETENTION_DAYS` | Trace 保留天数，供清理任务使用 |
@@ -409,6 +428,8 @@ docker compose up -d shared-minio
 - `run_id` 优先取 LangGraph config；缺失时回退 thread_id，多 run 共用 thread 时事件会合并。
 - 旧前端读取 state `turn_summary` 的，需要迁移到 `RunSummary`。
 - 策略正则匹配参数 JSON，不是命令语义；复杂命令需要更精确的规则。
+- LiteLLM fallback/circuit 必须显式配置；否则 Agent 侧 `max_retries=0` 意味着无重试。
+- Agent token 预算不等于账单成本控制；成本看 LiteLLM key/team budget。
 - TokenMeter 用 usage_metadata 回填成本，不实现自定义 tokenizer；摘要调用未计量。
 - 工具全文 MinIO 镜像是尽力而为，失败仍保留本地 artifact。
 - `/compact` 需要前端映射到 compact_conversation。

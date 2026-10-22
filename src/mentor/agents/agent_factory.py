@@ -35,6 +35,7 @@ from mentor.config.nacos.nacos_schemas import AgentSpec, MCPServerConfig
 from mentor.config.nacos.nacos_skill import ensure_skills, skill_path
 from mentor.middlewares.sandbox_lifecycle import sandbox_lifecycle_middleware
 from mentor.config.context_settings import context_settings
+from mentor.middlewares.budget import BudgetMiddleware
 from mentor.middlewares.context import (
     build_compact_tool_middleware,
     build_summarization_middleware,
@@ -254,6 +255,7 @@ class AgentFactory(ABC):
         # 显式压缩配置；同名中间件会替换 DeepAgents 默认 SummarizationMiddleware。
         # 测试/自定义工厂可能传 model=None，此时跳过模型相关中间件。
         if model is not None:
+            middleware.append(BudgetMiddleware())
             middleware.append(TokenMeterMiddleware())
             manual_summarization = build_summarization_middleware(
                 model, backend, auto=True

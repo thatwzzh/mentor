@@ -10,6 +10,8 @@ from langfuse.langchain import CallbackHandler
 from langfuse.types import TraceContext
 from langgraph_sdk.runtime import ServerRuntime
 
+from mentor.budget.run_budget import RunBudget, reset_run_budget, set_run_budget
+
 from .session_context import litellm_session_id
 from .shared import get_thread_id
 
@@ -65,6 +67,7 @@ def trace_wrapper(agent_factory):
         if override is not None and not isinstance(override, dict):
             raise ValueError("agent_spec_override 必须是对象")
         label = configurable.get("agent_label")
+        budget = RunBudget.from_settings(configurable.get("run_budget"))
         # 每次图调用都会重新执行工厂；工厂内部按 (agent, spec_hash) 返回缓存图。
         agent = await agent_factory(override=override, label=label)
         thread_id = get_thread_id()
@@ -86,6 +89,7 @@ def trace_wrapper(agent_factory):
         # 把当前 thread 写进 ContextVar，供 ReasoningChatModel 在每次请求时注入
         # x-litellm-session-id；图是跨请求缓存的，不能把首个 thread 的 header 固定下来。
         session_token = litellm_session_id.set(thread_id or "")
+        budget_token = set_run_budget(budget)
         try:
             if env:
                 with propagate_attributes(environment=env):
@@ -93,6 +97,7 @@ def trace_wrapper(agent_factory):
             else:
                 yield agent
         finally:
+            reset_run_budget(budget_token)
             litellm_session_id.reset(session_token)
             if lock is not None:
                 lock.release()

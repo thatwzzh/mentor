@@ -211,6 +211,29 @@ SummarizationMiddleware（显式配置）
 - `/compact` 由前端映射到 `compact_conversation` 工具；压缩结果写 `compression` 事件。
 - Token 成本通过 `GET /runs/{run_id}/usage` 查询；usage 事件优先于 model_response 汇总。
 
+### 4.5 模型韧性与单 run 预算
+
+```text
+LiteLLM（网关侧）
+  → provider 重试 / fallback / cooldown（熔断）
+Agent 侧
+  → MODEL_REQUEST_TIMEOUT_SECONDS + MODEL_MAX_RETRIES=0
+  → BudgetMiddleware：token/deadline 预检查
+  → ToolExecutor：工具执行前 deadline 检查
+  → TokenMeter：usage 事件 + served_model
+```
+
+- **重试/fallback/熔断放在 LiteLLM**，Agent 侧默认 `max_retries=0`，避免 3×3 放大。
+- `MODEL_REQUEST_TIMEOUT_SECONDS` 显式设置模型请求超时，不再依赖 SDK 默认。
+- `RunBudget`：
+  - `RUN_BUDGET_MAX_TOKENS`
+  - `RUN_BUDGET_MAX_SECONDS`
+  - `RUN_BUDGET_MAX_OUTPUT_TOKENS`（预检查预留）
+  - 0 表示不限制；可通过 `configurable.run_budget` 单次 run 覆盖
+- 预算在模型调用前检查，超限抛 `BudgetExceeded` 终止；主 Agent 与子 Agent 共享同一 ContextVar。
+- `usage.served_model` 记录实际返回模型，便于发现 LiteLLM fallback。
+- **成本预算**由 LiteLLM key/team budget 承担；Agent 侧 token 预算是防单 run 失控，不是账单级成本控制。
+
 ## 5. 配置分层与灰度
 
 ```text
@@ -296,6 +319,10 @@ deploy 自建 backend → finally aclose_run
 | `RUN_EVENTS_OUTBOX_DIR` | Postgres 写入失败时的 JSONL outbox，默认 `/tmp/mentor-run-events-outbox` |
 | `TOOL_POLICY_FILE` | 工具策略 YAML，默认 `config/tool_policy.yaml` |
 | `TOOL_MINIO_ARTIFACTS` | 超长工具全文是否镜像 MinIO，默认 true |
+| `MODEL_REQUEST_TIMEOUT_SECONDS` | 模型请求超时，默认 120s |
+| `MODEL_MAX_RETRIES` | Agent 侧客户端重试；默认 0，交给 LiteLLM |
+| `RUN_BUDGET_MAX_TOKENS` / `RUN_BUDGET_MAX_SECONDS` | 单 run token/时间预算；0 不限制 |
+| `RUN_BUDGET_MAX_OUTPUT_TOKENS` | 预算预检查预留输出，默认 4096 |
 | `CONTEXT_WINDOW_TOKENS` | 模型窗口回退值，默认 128000 |
 | `CONTEXT_TRIGGER_RATIO` | 自动压缩触发比例，默认 0.8 |
 | `CONTEXT_PRECOMPACT_RATIO` | 回答后异步预压缩水位，默认 0.60 |
@@ -346,6 +373,8 @@ RUN_EVENTS_POSTGRES_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor \
 - `GET /runs/{id}/summary` 的 run_id 优先取 LangGraph config；缺失时回退 thread_id，多个 run 共用 thread 时会合并事件。
 - 旧前端若读取 state 的 `turn_summary`，需要迁移到 `/runs/{id}/summary` 的 `RunSummary`。
 - 策略 `pattern` 匹配的是参数 JSON 文本，不是语义解析；复杂命令需配合更精确的规则。
+- LiteLLM 的 fallback/circuit 需要显式配置；当前 `litellm-config.yaml` 只有 session_affinity。
+- 单 run 成本账单级控制仍应使用 LiteLLM key/team budget；Agent 只做 token/deadline 防失控。
 - TokenMeter 用 usage_metadata 回填成本，不实现自定义 tokenizer；摘要模型调用本身暂未计入 usage。
 - 预压缩摘要写入 Postgres 后，下一轮会作为 `lc_source=summarization` 的 HumanMessage 注入；注入后仍由 checkpoint 修剪保留最近 10 轮。
 - pending 使用原子 claim：`try_claim` 只允许一个 run 启动摘要，`claim_ready` 只允许一个 run 注入；stale generating 默认 10 分钟后可回收。

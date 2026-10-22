@@ -6,6 +6,7 @@ ReasoningChatModel 在每次请求时从 session_context 读取并注入。
 
 from langchain.chat_models import init_chat_model
 
+from mentor.config.model_settings import model_settings
 from mentor.config.nacos.nacos_schemas import AgentModelConfig
 
 
@@ -18,6 +19,9 @@ def create_model(model_config: AgentModelConfig | None = None):
         "model_provider": "openai_reasoning",
         # enable_thinking 是部分 OpenAI 兼容服务（如百炼）的扩展字段。
         "extra_body": {"enable_thinking": model_config.thinking},
+        # LiteLLM 负责 provider 重试/fallback；Agent 侧默认不重复重试。
+        "request_timeout": model_settings.request_timeout_seconds,
+        "max_retries": model_settings.max_retries,
     }
     if model_config.temperature is not None:
         config["temperature"] = model_config.temperature

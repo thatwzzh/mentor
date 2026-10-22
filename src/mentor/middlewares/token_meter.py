@@ -75,6 +75,15 @@ class TokenMeterMiddleware(AgentMiddleware):
         usage = getattr(last, "usage_metadata", None) or {}
         if not isinstance(usage, dict):
             usage = {}
+        response_metadata = (
+            getattr(last, "response_metadata", {}) if last is not None else {}
+        )
+        served_model = None
+        if isinstance(response_metadata, dict):
+            served_model = (
+                response_metadata.get("model_name")
+                or response_metadata.get("model")
+            )
         output_estimate = (
             estimate_tokens([last]) if last is not None else 0
         )
@@ -97,6 +106,7 @@ class TokenMeterMiddleware(AgentMiddleware):
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
                     "total_tokens": total_tokens,
+                    "served_model": served_model or model_name,
                     "message_count": len(messages),
                     "token_usage": {
                         "input_tokens": input_tokens,

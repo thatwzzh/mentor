@@ -67,6 +67,26 @@ def _cmd_events_replay(_: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_golden_replay(args: argparse.Namespace) -> int:
+    from mentor.golden import load_case, replay_case
+
+    case = load_case(args.file)
+    replay_case(case)
+    print(f"PASS: {case.name} ({args.file})")
+    return 0
+
+
+def _cmd_golden_record(args: argparse.Namespace) -> int:
+    from mentor.golden import load_case, record_case, save_case
+
+    case = load_case(args.file)
+    recorded = record_case(case)
+    target = args.out or args.file
+    save_case(recorded, target)
+    print(f"RECORDED: {case.name} -> {target}")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mentor")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -90,6 +110,18 @@ def _build_parser() -> argparse.ArgumentParser:
     events_sub = events.add_subparsers(dest="events_action", required=True)
     replay = events_sub.add_parser("replay", help="重放 run_events outbox")
     replay.set_defaults(func=_cmd_events_replay)
+
+    golden = commands.add_parser("golden")
+    golden_sub = golden.add_subparsers(dest="golden_action", required=True)
+
+    golden_replay = golden_sub.add_parser("replay", help="回放 golden session")
+    golden_replay.add_argument("--file", required=True, help="golden JSON 路径")
+    golden_replay.set_defaults(func=_cmd_golden_replay)
+
+    golden_record = golden_sub.add_parser("record", help="录制/更新 golden expected")
+    golden_record.add_argument("--file", required=True, help="golden JSON 路径")
+    golden_record.add_argument("--out", help="输出路径；默认覆盖 --file")
+    golden_record.set_defaults(func=_cmd_golden_record)
     return parser
 
 

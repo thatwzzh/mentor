@@ -250,3 +250,6 @@ mc admin user svcacct ls shared root
 # 删除指定服务账号，把占位值替换为实际 Access Key
 mc admin user svcacct rm shared '<accessKey>'
 ```
+
+可重放评测：`uv run mentor golden replay --file tests/golden/sessions/basic_echo.json`；
+脚本化 golden 与真实模型录制说明见 [docs/golden-sessions.md](docs/golden-sessions.md)。

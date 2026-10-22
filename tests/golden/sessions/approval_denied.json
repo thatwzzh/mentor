@@ -1,0 +1,71 @@
+{
+  "version": "1",
+  "name": "approval_denied",
+  "description": "策略拒绝：deploy 被 deny，不执行工具，模型看到 policy 错误后收尾。",
+  "input": "请部署到生产。",
+  "steps": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "deploy",
+          "args": {
+            "target": "prod"
+          },
+          "id": "call-deploy"
+        }
+      ],
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "content": "部署被策略拒绝。",
+      "tool_calls": [],
+      "input_tokens": 0,
+      "output_tokens": 0
+    }
+  ],
+  "tools": [
+    {
+      "name": "deploy",
+      "result": "deployed",
+      "risk": "destructive",
+      "timeout_s": 10.0,
+      "delay_s": 0.0
+    }
+  ],
+  "policy_rules": [
+    {
+      "tool": "deploy",
+      "decision": "deny",
+      "reason": "golden deny"
+    }
+  ],
+  "expected": {
+    "event_kinds": [
+      "run_started",
+      "turn_started",
+      "model_request",
+      "usage",
+      "model_response",
+      "approval",
+      "model_request",
+      "usage",
+      "model_response",
+      "run_finished"
+    ],
+    "event_names": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      "deploy",
+      null,
+      null,
+      null,
+      null
+    ],
+    "final": "部署被策略拒绝。"
+  }
+}

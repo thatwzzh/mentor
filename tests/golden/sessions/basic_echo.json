@@ -1,0 +1,67 @@
+{
+  "version": "1",
+  "name": "basic_echo",
+  "description": "基础工具调用：模型调用 echo，工具返回，模型收尾。",
+  "input": "请调用 echo 工具返回 hi。",
+  "steps": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "echo",
+          "args": {
+            "text": "hi"
+          },
+          "id": "call-echo"
+        }
+      ],
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "content": "工具返回 hi，已完成。",
+      "tool_calls": [],
+      "input_tokens": 0,
+      "output_tokens": 0
+    }
+  ],
+  "tools": [
+    {
+      "name": "echo",
+      "result": "hi",
+      "risk": "read",
+      "timeout_s": 10.0,
+      "delay_s": 0.0
+    }
+  ],
+  "policy_rules": [],
+  "expected": {
+    "event_kinds": [
+      "run_started",
+      "turn_started",
+      "model_request",
+      "usage",
+      "model_response",
+      "tool_call",
+      "tool_result",
+      "model_request",
+      "usage",
+      "model_response",
+      "run_finished"
+    ],
+    "event_names": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      "echo",
+      "echo",
+      null,
+      null,
+      null,
+      null
+    ],
+    "final": "工具返回 hi，已完成。"
+  }
+}

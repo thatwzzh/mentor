@@ -1,0 +1,65 @@
+{
+  "version": "1",
+  "name": "tool_timeout",
+  "description": "工具超时：mock 工具延迟超过 ToolSpec timeout，返回 timeout 错误。",
+  "input": "请执行慢任务。",
+  "steps": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "slow",
+          "args": {},
+          "id": "call-slow"
+        }
+      ],
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "content": "工具超时，已记录。",
+      "tool_calls": [],
+      "input_tokens": 0,
+      "output_tokens": 0
+    }
+  ],
+  "tools": [
+    {
+      "name": "slow",
+      "result": "late",
+      "risk": "read",
+      "timeout_s": 0.01,
+      "delay_s": 0.05
+    }
+  ],
+  "policy_rules": [],
+  "expected": {
+    "event_kinds": [
+      "run_started",
+      "turn_started",
+      "model_request",
+      "usage",
+      "model_response",
+      "tool_call",
+      "tool_result",
+      "model_request",
+      "usage",
+      "model_response",
+      "run_finished"
+    ],
+    "event_names": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      "slow",
+      "slow",
+      null,
+      null,
+      null,
+      null
+    ],
+    "final": "工具超时，已记录。"
+  }
+}

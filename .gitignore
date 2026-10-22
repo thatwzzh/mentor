@@ -27,6 +27,8 @@ build/
 
 # sessions
 sessions
+!tests/golden/sessions/
+!tests/golden/sessions/**
 
 # langgraph
 .langgraph_api

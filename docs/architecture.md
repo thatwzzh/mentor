@@ -154,13 +154,17 @@ Agent 工具调用
 ### 4.2.2 会话投影：checkpoint 最小化
 
 ```text
+Agent 开始
+  → RunEventsMiddleware：run_started / turn_started / model_request / model_response
+工具调用
+  → ToolExecutorMiddleware：tool_call（副作用前）+ tool_result/approval（副作用后）
 Agent 结束
-  → run_projection（after_agent）
-    → project_messages_to_events → run_events（Postgres）
-    → project_state：最近 10 轮 + 历史摘要 + 产物列表
-    → messages 用 REMOVE_ALL_MESSAGES + 修剪后的消息替换
-GET /runs/{run_id}/summary?after_seq=0
-  → 按 user 过滤 → RunSummary（message/tool/approval/artifact/compression）
+  → run_projection：message / artifact / compression + checkpoint 修剪
+  → run_finished
+GET /runs/{run_id}/summary?after_seq=0   # session_summary
+GET /runs/{run_id}/trace                # status / last_completed_tool / pending
+GET /runs/{run_id}/usage                # token / compression
+GET /runs/{run_id}/events               # SSE（Last-Event-ID 重连）
 ```
 
 要点：
@@ -168,7 +172,10 @@ GET /runs/{run_id}/summary?after_seq=0
 - `turn_summary` 不再写 state；UI 摘要由接口从事件表计算。
 - 工具输出全文留在 run_events；checkpoint 里只保留 500 字符预览，100 轮会话可控。
 - 压缩事件记录 `before_tokens / after_tokens / kept_messages / summary_hash`。
-- 事件表使用 Postgres（`mentor-postgres`）；接口按 Bearer 身份过滤，`after_seq` 支持重放。
+- 工具事件在副作用前后各写一条；崩溃后 `trace.pending_tools` 可定位未完成工具。
+- 事件表使用 Postgres（`mentor-postgres`），带 `schema_version`；接口按 Bearer 身份过滤，`after_seq` / `Last-Event-ID` 支持重放。
+- Postgres 写失败时落 `RUN_EVENTS_OUTBOX_DIR`，用 `mentor events replay` 重放。
+- 前端 SSE/卡片验证待前端阶段完成。
 
 ### 4.3 模型链路：Agent → LiteLLM → 模型提供方
 
@@ -302,6 +309,7 @@ docker compose up -d shared-minio
 | `MENTOR_POSTGRES_PASSWORD` | `mentor-postgres` 密码，默认 `mentor` |
 | `RUN_EVENTS_KEEP_LAST_TURNS` | checkpoint 保留最近轮数，默认 10 |
 | `RUN_EVENTS_MAX_TOOL_CHARS` | 保留轮次中的工具输出上限，默认 500 |
+| `RUN_EVENTS_OUTBOX_DIR` | Postgres 写入失败时的 JSONL outbox，默认 `/tmp/mentor-run-events-outbox` |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 连接配置 |
 | `LANGFUSE_TRACE_RETENTION_DAYS` | Trace 保留天数，供清理任务使用 |
 | `BENCHMARK_AGENT_SERVER` / `BENCHMARK_USER_ID` / `BENCHMARK_GRAPH_ID` | 评测任务连接 Agent 的参数 |

@@ -12,7 +12,7 @@
 | 4.2.2 配置 | 已完成 | 无 CI 门禁；doctor 只检查网关可达，不校验具体模型/镜像是否存在；staging 仅覆盖 AgentSpec/Prompt |
 | 4.2.3 沙箱 | 主体完成 | S7 同步接口仍用 `asyncio.run`；空闲回收只在创建新沙箱时触发；无启动时 `runtime.store` 检查；网络/配额是可选配置，非默认 deny |
 | 4.2.4 工具 | 已完成 | MCP 的 auth/timeout/allowed/exposure 依赖 Nacos 返回字段，未验证管理端真实透出；risk 只是元数据，策略层尚未消费 |
-| 4.2.6 会话投影 | 主体完成 | Token 只做 usage 汇总，没有 TokenMeter/预算；事件类型缺少 run/model 生命周期；仓库无前端，UI 卡片只有后端契约 |
+| 4.2.6 会话投影 | 主体完成 | Token 只做 usage 汇总，没有 TokenMeter/预算；事件类型已由 5.2 后端补齐；仓库无前端，UI 卡片只有后端契约 |
 | §4.1.1 S1–S20 | 9 项完成、3 项部分、6 项未完成 | S7/S13/S17/S18/S19/S20 仍未完成；S12/S16/S15 部分 |
 
 ## 2. 4.2.1 Agent 工厂
@@ -98,8 +98,8 @@
 **遗留/边界**
 
 - **没有 TokenMeter/预算**：只汇总 `usage_metadata` 和估算 token，没有阈值、超限拒绝或成本告警；属于 4.2.7 的指标基础。
-- **事件类型不全**：只有 message/tool_call/tool_result/approval/artifact/compression；缺 `run_started/turn_started/model_request/model_response/run_finished`，无法从事件表完整还原模型请求时序。
-- **UI 卡片只有后端契约**：仓库没有前端；`RunSummary` 能被前端消费，但“UI 能渲染”未在项目内验证。
+- **事件类型已补齐**：run_started/turn_started/model_request/model_response/run_finished 已由 5.2 后端实现；仍缺独立 TokenMeter/预算。
+- **UI 卡片只有后端契约**：仓库没有前端；SSE、工具卡/审批卡/产物卡验收见 `run-events-frontend-todo.md`。
 - `run_id` 优先 config，缺失回退 thread_id；多个 run 共用 thread 时事件合并。
 - 4.2.5 未完成前，摘要接口仍使用 MOCK_USER 身份。
 
@@ -146,7 +146,7 @@
 
 **P2（体验/治理）**
 
-9. 4.2.6 TokenMeter、run/model 生命周期事件。
+9. 4.2.6 TokenMeter/成本；run/model 生命周期事件已由 5.2 补齐。
 10. S12 web 重试与退避。
 11. S16 ask_user_question 直接返回可恢复错误，不依赖执行器兜底。
 

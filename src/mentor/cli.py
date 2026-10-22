@@ -60,9 +60,17 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if all(result.ok for result in results) else 1
 
 
+def _cmd_events_replay(_: argparse.Namespace) -> int:
+    from mentor.events.outbox import replay_outbox
+
+    print(f"REPLAYED: {replay_outbox()}")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mentor")
-    config = parser.add_subparsers(dest="command", required=True).add_parser("config")
+    commands = parser.add_subparsers(dest="command", required=True)
+    config = commands.add_parser("config")
     config_sub = config.add_subparsers(dest="config_command", required=True)
 
     schema = config_sub.add_parser("schema", help="输出 AgentSpec JSON Schema")
@@ -77,6 +85,11 @@ def _build_parser() -> argparse.ArgumentParser:
     doctor = config_sub.add_parser("doctor", help="启动前配置体检")
     doctor.add_argument("--agent", default="main_agent", help="要检查的 Agent 名称")
     doctor.set_defaults(func=_cmd_doctor)
+
+    events = commands.add_parser("events")
+    events_sub = events.add_subparsers(dest="events_action", required=True)
+    replay = events_sub.add_parser("replay", help="重放 run_events outbox")
+    replay.set_defaults(func=_cmd_events_replay)
     return parser
 
 

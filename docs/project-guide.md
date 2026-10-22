@@ -63,12 +63,16 @@ src/mentor/
 ├─ middlewares/
 │  ├─ turn_summary.py         # 前端可见消息摘要
 │  ├─ sandbox_lifecycle.py    # after_agent 关闭当前 run 的沙箱连接
-│  ├─ tool_executor.py        # 所有工具调用接入统一执行器
-│  └─ run_projection.py       # 写 run_events + 修剪 checkpoint
+│  ├─ tool_executor.py        # 工具调用 + 副作用前后事件
+│  ├─ run_events.py           # run/turn/model 生命周期事件
+│  └─ run_projection.py       # 写消息/压缩事件 + 修剪 checkpoint
 ├─ events/
 │  ├─ models.py               # RunEvent / RunSummary 前端契约
+│  ├─ context.py              # run/thread/user 上下文
 │  ├─ store.py                # Postgres 事件表（测试用 InMemory）
-│  └─ projection.py           # 消息→事件、checkpoint 修剪
+│  ├─ projection.py           # 消息→事件、checkpoint 修剪
+│  ├─ writer.py               # 写事件 + outbox 兜底
+│  └─ outbox.py               # 失败事件落盘与重放
 ├─ security/auth.py           # LangGraph 鉴权（当前为 MOCK_USER）
 ├─ tools/
 │  ├─ specs.py                # ToolSpec / @register_tool / 风险与暴露级别
@@ -76,7 +80,7 @@ src/mentor/
 │  ├─ artifacts.py            # artifact:// 存储与读取
 │  └─ *.py                    # deploy / web / time / ask_user_question
 ├─ benchmarks/                # Langfuse Dataset / Experiment / 评测器
-├─ app/                       # 自定义 Webhook 路由
+├─ app/                       # Webhook / summary / trace / usage / SSE 路由
 └─ utils/                     # 模型、缓存、MinIO、沙箱、trace 等通用工具
 ```
 
@@ -136,20 +140,27 @@ Agent 工具调用
 ### 4.2 会话投影：checkpoint 最小化
 
 ```text
+Agent 开始
+  → RunEventsMiddleware：run_started / turn_started / model_request / model_response
+工具调用
+  → ToolExecutorMiddleware：tool_call（副作用前）+ tool_result/approval（副作用后）
 Agent 结束
-  → run_projection（after_agent）
-    → project_messages_to_events → run_events 表
-    → project_state：最近 10 轮 + 历史摘要 + 产物列表
-    → checkpoint 替换为修剪后的 messages
-GET /runs/{run_id}/summary?after_seq=0
-  → 按 user 过滤事件 → RunSummary（前端卡片/审计）
+  → run_projection：message / artifact / compression + checkpoint 修剪
+  → run_finished
+GET /runs/{run_id}/summary?after_seq=0   # session_summary
+GET /runs/{run_id}/trace                # 状态 + 最后完成工具 + pending
+GET /runs/{run_id}/usage                # token / 压缩
+GET /runs/{run_id}/events               # SSE（Last-Event-ID 重连）
 ```
 
-- `turn_summary` 不再写 state；UI 摘要由 `GET /runs/{run_id}/summary` 从 `run_events` 计算。
+- `turn_summary` 不再写 state；UI 摘要由 `run_events` 投影计算。
 - checkpoint 只保留最近 `RUN_EVENTS_KEEP_LAST_TURNS`（默认 10）轮；旧轮次进入 `history_summary`，工具输出全文留在事件表。
 - 压缩日志记录 `before_tokens / after_tokens / kept_messages / summary_hash`；token 用量取自消息 usage metadata。
-- 事件类型：`message / tool_call / tool_result / approval / artifact / compression`，UI 工具卡、审批卡、产物卡共用同一契约。
-- 事件表使用 Postgres（`mentor-postgres`）；`after_seq` 支持增量重放，测试使用 `InMemoryRunEventStore`。
+- 事件类型：`run_started / turn_started / model_request / model_response / tool_call / tool_result / approval / artifact / message / compression / run_finished`。
+- 工具事件在副作用前后各写一条；崩溃时可用 `trace` 的 `pending_tools` 定位最后一个未完成工具。
+- 事件表使用 Postgres（`mentor-postgres`），带 `schema_version`；`after_seq`/SSE `Last-Event-ID` 支持重放。
+- Postgres 写失败时落到 `RUN_EVENTS_OUTBOX_DIR`，用 `mentor events replay` 重放。
+- 前端 SSE/卡片验证待前端阶段完成，见 [run-events-frontend-todo.md](run-events-frontend-todo.md)。
 
 ## 5. 配置分层与灰度
 
@@ -233,6 +244,7 @@ deploy 自建 backend → finally aclose_run
 | `RUN_EVENTS_KEEP_LAST_TURNS` | checkpoint 保留最近轮数，默认 10 |
 | `RUN_EVENTS_MAX_TOOL_CHARS` | 保留轮次中的工具输出上限，默认 500 |
 | `RUN_EVENTS_SUMMARY_MAX_CHARS` | 历史摘要上限，默认 4000 |
+| `RUN_EVENTS_OUTBOX_DIR` | Postgres 写入失败时的 JSONL outbox，默认 `/tmp/mentor-run-events-outbox` |
 
 ## 8. 测试与发布
 

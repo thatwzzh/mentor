@@ -114,7 +114,8 @@ def test_middleware_wraps_success_error_and_timeout():
             max_output_chars=5,
         )
     )
-    middleware = ToolExecutorMiddleware(registry)
+    event_log = []
+    middleware = ToolExecutorMiddleware(registry, writer=event_log.append)
     request = cast(
         Any,
         SimpleNamespace(
@@ -150,6 +151,9 @@ def test_middleware_wraps_success_error_and_timeout():
         timeout = await middleware.awrap_tool_call(request, timeout_handler)
         assert isinstance(timeout, ToolMessage)
         assert timeout.artifact["error_kind"] == "timeout"
+        # 工具副作用前后各写一条事件。
+        assert [event.kind for event in event_log].count("tool_call") == 3
+        assert [event.kind for event in event_log].count("tool_result") == 3
 
     asyncio.run(scenario())
 

@@ -40,6 +40,7 @@ def test_postgres_store_roundtrip_and_user_filter():
         assert store.append_many(events) == 0
         listed = store.list(run_id, user_id="user-a")
         assert [event.seq for event in listed] == [1, 2]
+        assert [event.schema_version for event in listed] == ["1", "1"]
         assert store.list(run_id, user_id="user-b") == []
         assert store.list(run_id, user_id="user-a", after_seq=1)[0].content == "world"
     finally:

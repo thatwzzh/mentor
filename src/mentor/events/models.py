@@ -6,12 +6,17 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 RunEventKind = Literal[
-    "message",
+    "run_started",
+    "turn_started",
+    "model_request",
+    "model_response",
     "tool_call",
     "tool_result",
     "approval",
     "artifact",
+    "message",
     "compression",
+    "run_finished",
     "summary",
 ]
 RunEventRole = Literal["user", "assistant", "tool", "system", "event"]
@@ -27,6 +32,7 @@ class RunEvent(BaseModel):
     run_id: str
     thread_id: str = ""
     user_id: str = ""
+    schema_version: str = "1"
     seq: int = 0
     event_key: str
     kind: RunEventKind
@@ -49,3 +55,6 @@ class RunSummary(BaseModel):
     artifacts: list[str]
     token_usage: dict[str, int]
     compression: list[dict[str, Any]]
+    status: Literal["unknown", "running", "finished", "incomplete"] = "unknown"
+    last_completed_tool: dict[str, Any] | None = None
+    pending_tools: list[dict[str, Any]] = Field(default_factory=list)

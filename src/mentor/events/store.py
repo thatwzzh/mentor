@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS run_events (
     event_key TEXT NOT NULL,
     thread_id TEXT NOT NULL DEFAULT '',
     user_id TEXT NOT NULL DEFAULT '',
+    schema_version TEXT NOT NULL DEFAULT '1',
     kind TEXT NOT NULL,
     role TEXT,
     name TEXT,
@@ -35,6 +36,8 @@ CREATE TABLE IF NOT EXISTS run_event_seq (
 );
 CREATE INDEX IF NOT EXISTS idx_run_events_user
     ON run_events (run_id, user_id, seq);
+ALTER TABLE run_events
+    ADD COLUMN IF NOT EXISTS schema_version TEXT NOT NULL DEFAULT '1';
 """
 
 
@@ -91,9 +94,9 @@ class RunEventStore:
                     cursor = conn.execute(
                         """
                         INSERT INTO run_events
-                            (run_id, seq, event_key, thread_id, user_id, kind, role,
-                             name, content, data, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            (run_id, seq, event_key, thread_id, user_id,
+                             schema_version, kind, role, name, content, data, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (run_id, event_key) DO NOTHING
                         """,
                         (
@@ -102,6 +105,7 @@ class RunEventStore:
                             event.event_key,
                             event.thread_id,
                             event.user_id,
+                            event.schema_version,
                             event.kind,
                             event.role,
                             event.name,
@@ -131,6 +135,7 @@ class RunEventStore:
                 run_id=row["run_id"],
                 thread_id=row["thread_id"],
                 user_id=row["user_id"],
+                schema_version=row.get("schema_version", "1"),
                 seq=row["seq"],
                 event_key=row["event_key"],
                 kind=row["kind"],

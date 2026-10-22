@@ -100,4 +100,10 @@
 - 4.2.2 `doctor` 不校验具体模型名/沙箱镜像是否存在；没有 CI 门禁。
 - 4.2.3 空闲回收只在创建新沙箱时触发；没有启动时 `runtime.store` 检查；网络/配额是可选配置。
 - 4.2.4 MCP 字段依赖 Nacos 真实透出；`risk` 尚未被策略层消费。
-- 4.2.6 没有 TokenMeter/预算；事件类型缺 run/model 生命周期；仓库无前端实现。
+- 4.2.6 没有 TokenMeter/预算；5.2 后端已补事件类型/SSE/outbox，前端仍待验证。
+
+## 7. 5.2 前端待办
+
+5.2 后端（事件类型、工具前后写入、SSE、trace/usage、outbox）已完成；前端 SSE 与卡片渲染未验证。清单见 [run-events-frontend-todo.md](run-events-frontend-todo.md)。
+
+验收条件：任一 run 可按 seq 重放；崩溃后能看到 `status=incomplete` 与 `pending_tools`；工具卡/审批卡/产物卡与事件流同源。

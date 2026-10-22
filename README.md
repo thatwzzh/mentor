@@ -46,9 +46,10 @@ make dev-check
 `artifact://` 引用。MCP 工具默认 `deferred`，模型通过 `tool_search` / `call_tool` 使用；
 需要旧行为时在 MCP server 配置里设 `exposure: direct`。
 
-会话层：`turn_summary` 已改为 `run_events` 投影；`GET /runs/{run_id}/summary?after_seq=0`
-返回前端卡片/审计共用的事件。checkpoint 只保留最近 10 轮 + 历史摘要 + 产物列表，
+会话层：`turn_summary` 已改为 `run_events` 投影；`/runs/{run_id}/summary`、`/trace`、`/usage`
+提供投影，`/runs/{run_id}/events` 提供 SSE。checkpoint 只保留最近 10 轮 + 历史摘要 + 产物列表，
 事件表使用 Postgres（compose 的 `mentor-postgres`，默认 `RUN_EVENTS_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor`）。
+Postgres 写失败会落 `RUN_EVENTS_OUTBOX_DIR`，可用 `mentor events replay` 重放。
 
 ## 服务说明
 

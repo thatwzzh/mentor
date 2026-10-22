@@ -85,7 +85,7 @@ def project_messages_to_events(
                         run_id=run_id,
                         thread_id=thread_id,
                         user_id=user_id,
-                        event_key=_event_key(index, "message", str(msg.id or "")),
+                        event_key=f"message:{msg.id or index}",
                         kind="message",
                         role="assistant",
                         content=content,
@@ -101,9 +101,7 @@ def project_messages_to_events(
                         run_id=run_id,
                         thread_id=thread_id,
                         user_id=user_id,
-                        event_key=_event_key(
-                            index, "tool_call", f"{tool_index}:{call_id}"
-                        ),
+                        event_key=f"tool_call:{call_id or f'{index}:{tool_index}'}",
                         kind="tool_call",
                         role="assistant",
                         name=name or None,
@@ -120,7 +118,7 @@ def project_messages_to_events(
                     run_id=run_id,
                     thread_id=thread_id,
                     user_id=user_id,
-                    event_key=_event_key(index, kind, str(msg.id or "")),
+                    event_key=f"{kind}:{msg.tool_call_id or msg.id or index}",
                     kind=kind,
                     role="tool",
                     name=msg.name,
@@ -138,7 +136,7 @@ def project_messages_to_events(
                         run_id=run_id,
                         thread_id=thread_id,
                         user_id=user_id,
-                        event_key=_event_key(index, "artifact", artifact),
+                        event_key=f"artifact:{artifact}",
                         kind="artifact",
                         role="event",
                         name=artifact,
@@ -153,7 +151,7 @@ def project_messages_to_events(
                     run_id=run_id,
                     thread_id=thread_id,
                     user_id=user_id,
-                    event_key=_event_key(index, "message", str(msg.id or "")),
+                    event_key=f"message:{msg.id or index}",
                     kind="message",
                     role=role,
                     content=content,
@@ -313,6 +311,30 @@ def build_summary(events: list[RunEvent]) -> RunSummary:
                 if isinstance(value, int):
                     token_usage[key] += value
     first = events[0] if events else None
+    started = any(event.kind == "run_started" for event in events)
+    finished = any(event.kind == "run_finished" for event in events)
+    calls: dict[str, dict[str, Any]] = {}
+    completed: dict[str, dict[str, Any]] = {}
+    last_completed: dict[str, Any] | None = None
+    for event in events:
+        call_id = str(event.data.get("tool_call_id") or "")
+        if event.kind == "tool_call":
+            calls[call_id or str(event.seq)] = {
+                "seq": event.seq,
+                "name": event.name,
+                "tool_call_id": call_id or None,
+            }
+        elif event.kind in {"tool_result", "approval"}:
+            key = call_id or str(event.seq)
+            completed[key] = {
+                "seq": event.seq,
+                "name": event.name,
+                "tool_call_id": call_id or None,
+                "status": event.data.get("status"),
+            }
+            last_completed = completed[key]
+    pending = [value for key, value in calls.items() if key not in completed]
+    status = "finished" if finished else "incomplete" if started else "unknown"
     return RunSummary(
         run_id=first.run_id if first else "",
         thread_id=first.thread_id if first else "",
@@ -322,4 +344,7 @@ def build_summary(events: list[RunEvent]) -> RunSummary:
         artifacts=artifacts,
         token_usage=token_usage,
         compression=compression,
+        status=status,
+        last_completed_tool=last_completed,
+        pending_tools=pending,
     )

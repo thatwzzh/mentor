@@ -1,9 +1,13 @@
 """4.2.6 会话投影测试：事件契约、事件表、压缩日志与 100 轮 checkpoint 大小。"""
 
+import asyncio
+import tempfile
+from pathlib import Path
 from typing import Any, cast
 
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
+from langchain.agents.middleware.types import ModelResponse
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from mentor.events.models import RunEvent
@@ -13,6 +17,9 @@ from mentor.events.projection import (
     project_state,
 )
 from mentor.events.store import InMemoryRunEventStore
+from mentor.events import writer as writer_module
+from mentor.events.outbox import replay_outbox
+from mentor.middlewares.run_events import RunEventsMiddleware
 from mentor.middlewares.run_projection import run_projection
 
 
@@ -159,10 +166,14 @@ def test_run_summary_route_requires_bearer_and_filters_user(monkeypatch):
         ]
     )
 
-    async def fake_authenticate(authorization: str):
-        return {"identity": "user-a"}
+    from fastapi import HTTPException
 
-    monkeypatch.setattr(run_summary_module, "authenticate", fake_authenticate)
+    async def fake_require_user(authorization: str | None) -> str:
+        if not authorization or not authorization.lower().startswith("bearer "):
+            raise HTTPException(status_code=401, detail="invalid authorization")
+        return "user-a"
+
+    monkeypatch.setattr(run_summary_module, "require_user", fake_require_user)
     monkeypatch.setattr(run_summary_module, "get_run_event_store", lambda: store)
     client = TestClient(app)
 
@@ -182,6 +193,20 @@ def test_run_summary_route_requires_bearer_and_filters_user(monkeypatch):
     assert payload["run_id"] == "run-route"
     assert payload["events"][0]["content"] == "hello"
     assert payload["contract_version"] == "1"
+
+    trace = client.get(
+        "/runs/run-route/trace",
+        headers={"Authorization": "Bearer token"},
+    )
+    assert trace.status_code == 200
+    assert trace.json()["status"] == "unknown"
+
+    usage = client.get(
+        "/runs/run-route/usage",
+        headers={"Authorization": "Bearer token"},
+    )
+    assert usage.status_code == 200
+    assert usage.json()["token_usage"]["total_tokens"] == 0
 
 
 def test_run_projection_middleware_replaces_messages_and_logs_compression(monkeypatch):
@@ -214,3 +239,152 @@ def test_run_projection_middleware_replaces_messages_and_logs_compression(monkey
     assert update["history_summary"]
     assert update["artifacts"]
     assert any(event.kind == "compression" for event in fake_store.events)
+
+
+def test_run_events_middleware_writes_lifecycle_and_model_events(monkeypatch):
+    from types import SimpleNamespace
+
+    events = []
+    middleware = RunEventsMiddleware("main_agent", writer=events.append)
+    monkeypatch.setattr(
+        "mentor.middlewares.run_events.runtime_ids",
+        lambda: ("run-1", "thread-1", "user-1"),
+    )
+    state = {"messages": [HumanMessage(content="question", id="h1")]}
+
+    async def handler(request):
+        return ModelResponse(
+            result=[
+                AIMessage(
+                    content="answer",
+                    id="a1",
+                    usage_metadata={
+                        "input_tokens": 1,
+                        "output_tokens": 2,
+                        "total_tokens": 3,
+                    },
+                )
+            ]
+        )
+
+    request = SimpleNamespace(
+        messages=state["messages"],
+        model=SimpleNamespace(model_name="chat-standard"),
+    )
+
+    async def scenario():
+        await middleware.abefore_agent(state, cast(Any, None))
+        await middleware.awrap_model_call(request, handler)
+        await middleware.aafter_agent(state, cast(Any, None))
+
+    asyncio.run(scenario())
+    kinds = [event.kind for event in events]
+    assert kinds == [
+        "run_started",
+        "turn_started",
+        "model_request",
+        "model_response",
+        "run_finished",
+    ]
+    assert events[-1].data["status"] == "ok"
+    assert events[3].data["token_usage"]["total_tokens"] == 3
+
+
+def test_build_summary_reports_finished_last_tool_and_pending():
+    def event(seq, kind, name=None, call_id=None, status=None):
+        return RunEvent(
+            run_id="run-status",
+            user_id="user-a",
+            seq=seq,
+            event_key=f"e{seq}",
+            kind=kind,
+            name=name,
+            data={"tool_call_id": call_id, "status": status},
+        )
+
+    events = [
+        event(1, "run_started"),
+        event(2, "tool_call", "deploy", "c1"),
+        event(3, "tool_result", "deploy", "c1", "success"),
+        event(4, "tool_call", "deploy", "c2"),
+        event(5, "run_finished"),
+    ]
+    summary = build_summary(events)
+    assert summary.status == "finished"
+    assert summary.last_completed_tool is not None
+    assert summary.last_completed_tool["name"] == "deploy"
+    assert summary.last_completed_tool["tool_call_id"] == "c1"
+    assert summary.pending_tools[0]["tool_call_id"] == "c2"
+
+
+def test_run_events_sse_streams_until_finished(monkeypatch):
+    from fastapi import HTTPException
+    from mentor.app import run_events as run_events_module
+    from mentor.app.main import app
+
+    store = InMemoryRunEventStore()
+    store.append_many(
+        [
+            RunEvent(
+                run_id="run-sse",
+                user_id="user-a",
+                event_key="s1",
+                kind="run_started",
+            ),
+            RunEvent(
+                run_id="run-sse",
+                user_id="user-a",
+                event_key="s2",
+                kind="run_finished",
+                data={"status": "ok"},
+            ),
+        ]
+    )
+
+    async def fake_require_user(authorization: str | None) -> str:
+        if not authorization or not authorization.lower().startswith("bearer "):
+            raise HTTPException(status_code=401, detail="invalid authorization")
+        return "user-a"
+
+    monkeypatch.setattr(run_events_module, "require_user", fake_require_user)
+    monkeypatch.setattr(run_events_module, "get_run_event_store", lambda: store)
+    client = TestClient(app)
+
+    with client.stream(
+        "GET",
+        "/runs/run-sse/events",
+        headers={"Authorization": "Bearer token"},
+    ) as response:
+        assert response.status_code == 200
+        body = "".join(response.iter_text())
+
+    assert "event: run_started" in body
+    assert "event: run_finished" in body
+    assert "id: 1" in body
+
+
+def test_event_writer_spills_to_outbox_and_replays(monkeypatch):
+    from mentor.config.event_settings import event_settings
+
+    with tempfile.TemporaryDirectory() as tmp:
+        outbox = Path(tmp) / "outbox"
+        monkeypatch.setattr(event_settings, "outbox_dir", str(outbox))
+        monkeypatch.setattr(
+            writer_module,
+            "get_run_event_store",
+            lambda: (_ for _ in ()).throw(RuntimeError("db down")),
+        )
+        event = RunEvent(
+            run_id="run-outbox",
+            user_id="user-a",
+            event_key="o1",
+            kind="run_started",
+        )
+        writer_module.append_event(event)
+        files = list(outbox.glob("*.jsonl"))
+        assert len(files) == 1
+
+        store = InMemoryRunEventStore()
+        assert replay_outbox(store) == 1
+        assert store.list("run-outbox", user_id="user-a")[0].kind == "run_started"
+        assert not files[0].exists()

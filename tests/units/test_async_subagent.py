@@ -163,3 +163,16 @@ def test_agent_with_subagents_gets_background_tools():
     )
     names = {tool.name for tool in bundle.direct_tools}
     assert {"spawn_subagent", "check_subagent", "cancel_subagent"} <= names
+
+
+def test_async_subagent_prompt_marks_suitable_and_unsuitable_cases():
+    from mentor.agents.async_subagent_prompt import (
+        ASYNC_SUBAGENT_GUIDE,
+        with_async_subagent_guide,
+    )
+
+    assert "适合" in ASYNC_SUBAGENT_GUIDE
+    assert "不适合" in ASYNC_SUBAGENT_GUIDE
+    prompt = with_async_subagent_guide("base prompt")
+    assert "spawn_subagent" in prompt
+    assert "只读" in prompt

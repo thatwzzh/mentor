@@ -67,7 +67,7 @@ Agent 侧 `max_retries` 固定为 0，避免与 LiteLLM 重复重试。
 
 异步子代理：有 `subagents` 的 Agent 自动获得 `spawn_subagent` / `check_subagent` /
 `cancel_subagent`；后台执行、默认深度 1、默认只读、写 `subagent_*` 事件，父级只拿
-job_id 和摘要。
+job_id 和摘要。前端接入见 [docs/async-subagent-frontend.md](docs/async-subagent-frontend.md)。
 
 ## 服务说明
 

@@ -28,6 +28,7 @@ from langchain_core.runnables import Runnable
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from mentor.agents.agent_cache import AgentCache
+from mentor.agents.async_subagent_prompt import with_async_subagent_guide
 from mentor.agents.subagent_registry import get_subagent_factory
 from mentor.backends.sandbox_backend import SandboxBackend
 from mentor.config.nacos.nacos_agent_spec import get_agent_spec
@@ -261,6 +262,8 @@ class AgentFactory(ABC):
         spec_hash: str,
     ) -> Runnable:
         backend = self.get_backend()
+        if subagents:
+            system_prompt = with_async_subagent_guide(system_prompt)
         middleware = list(self.get_middlewares())
         # 显式压缩配置；同名中间件会替换 DeepAgents 默认 SummarizationMiddleware。
         # 测试/自定义工厂可能传 model=None，此时跳过模型相关中间件。

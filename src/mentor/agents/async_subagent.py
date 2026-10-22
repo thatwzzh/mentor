@@ -172,6 +172,7 @@ class AsyncSubAgentRunner:
                     data={
                         "job_id": job.job_id,
                         "agent": job.spec.name,
+                        "task": job.task[:500],
                         "status": job.status,
                         "error": job.error,
                         "result": job.result,
@@ -206,6 +207,7 @@ class AsyncSubAgentRunner:
         return {
             "job_id": job.job_id,
             "agent": job.spec.name,
+            "task": job.task[:500],
             "status": job.status,
             "result": result,
             "error": job.error,

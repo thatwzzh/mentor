@@ -36,6 +36,8 @@
 - [ ] `usage` 事件与 `/runs/{id}/usage` 的成本卡。
 - [ ] `subagent_started/finished/failed/cancelled` 事件卡片；`spawn_subagent`/`check_subagent`/`cancel_subagent` 的前端入口。
 - [ ] 子代理完成后如何“唤醒”前端：轮询 `check_subagent` 或下一轮 user message 注入结果。
+
+详细契约、状态查询和结果反显见 [async-subagent-frontend.md](async-subagent-frontend.md)。
 - [ ] 失败/重连测试：kill 进程、断网、重复 seq、空 run、404。
 - [ ] 前端 E2E：工具卡/审批卡/产物卡与 `run_events` 同源，不另建一套消息口径。
 

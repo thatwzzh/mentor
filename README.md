@@ -61,7 +61,8 @@ artifact + MinIO 镜像；压缩使用显式 `CONTEXT_*` trigger/keep，`compact
 下一轮只注入摘要；0.8 自动压缩仍作兜底。
 
 韧性：LiteLLM 负责 provider 重试/fallback/熔断；Agent 侧显式设置 `MODEL_REQUEST_TIMEOUT_SECONDS`，
-默认 `MODEL_MAX_RETRIES=0` 避免重复重试。`RUN_BUDGET_MAX_TOKENS/MAX_SECONDS` 提供单 run 预算，
+Agent 侧 `max_retries` 固定为 0，避免与 LiteLLM 重复重试。
+配置分工见 [docs/config-split.md](docs/config-split.md)：LiteLLM 管超时/重试/fallback/熔断，Agent 管客户端超时、上下文压缩和单 run 预算。`RUN_BUDGET_MAX_TOKENS/MAX_SECONDS` 提供单 run 预算，
 超限抛 `BudgetExceeded` 终止；子 Agent 共享父 run 预算。
 
 ## 服务说明

@@ -212,13 +212,13 @@ SummarizationMiddleware（显式 trigger/keep）
 
 ```text
 LiteLLM：provider retry / fallback / cooldown
-Agent：MODEL_REQUEST_TIMEOUT_SECONDS + MODEL_MAX_RETRIES=0
+Agent：MODEL_REQUEST_TIMEOUT_SECONDS + max_retries 固定 0
        BudgetMiddleware：token/deadline 预检查
        ToolExecutor：deadline 检查
        TokenMeter：usage + served_model
 ```
 
-- 重试/fallback/熔断以 LiteLLM 为准，Agent 不重复实现；`MODEL_MAX_RETRIES=0` 避免放大。
+- 重试/fallback/熔断以 LiteLLM 为准，Agent 不重复实现；`max_retries` 固定为 0，避免放大。
 - `RunBudget` 在模型调用前检查 token 与 deadline；超限抛 `BudgetExceeded` 终止 run。
 - 子 Agent 通过 ContextVar 共享父 run 预算，避免后台子任务无限烧 token。
 - 单 run 成本账单级控制仍使用 LiteLLM key/team budget；Agent 预算只防单 run 失控。
@@ -362,7 +362,7 @@ docker compose up -d shared-minio
 | `CONTEXT_WINDOW_TOKENS` / `CONTEXT_TRIGGER_RATIO` / `CONTEXT_KEEP_MESSAGES` | 压缩 trigger/keep |
 | `CONTEXT_TRIM_TOKENS_TO_SUMMARIZE` / `CONTEXT_AUTO_COMPACT` | 摘要输入上限与自动压缩开关 |
 | `CONTEXT_PRECOMPACT_RATIO` | 回答后异步预压缩水位，默认 0.60 |
-| `MODEL_REQUEST_TIMEOUT_SECONDS` / `MODEL_MAX_RETRIES` | 模型超时与 Agent 侧重试边界 |
+| `MODEL_REQUEST_TIMEOUT_SECONDS` | 客户端超时保护；需 ≥ LiteLLM timeout |
 | `RUN_BUDGET_MAX_TOKENS` / `RUN_BUDGET_MAX_SECONDS` / `RUN_BUDGET_MAX_OUTPUT_TOKENS` | 单 run 预算 |
 | `TOOL_POLICY_ENABLED` | 策略总开关；false 回退 allow |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 连接配置 |

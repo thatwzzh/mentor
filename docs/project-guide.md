@@ -217,13 +217,13 @@ SummarizationMiddleware（显式配置）
 LiteLLM（网关侧）
   → provider 重试 / fallback / cooldown（熔断）
 Agent 侧
-  → MODEL_REQUEST_TIMEOUT_SECONDS + MODEL_MAX_RETRIES=0
+  → MODEL_REQUEST_TIMEOUT_SECONDS + max_retries 固定 0
   → BudgetMiddleware：token/deadline 预检查
   → ToolExecutor：工具执行前 deadline 检查
   → TokenMeter：usage 事件 + served_model
 ```
 
-- **重试/fallback/熔断放在 LiteLLM**，Agent 侧默认 `max_retries=0`，避免 3×3 放大。
+- **重试/fallback/熔断放在 LiteLLM**，Agent 侧 `max_retries` 固定为 0，避免 3×3 放大。
 - `MODEL_REQUEST_TIMEOUT_SECONDS` 显式设置模型请求超时，不再依赖 SDK 默认。
 - `RunBudget`：
   - `RUN_BUDGET_MAX_TOKENS`
@@ -320,7 +320,6 @@ deploy 自建 backend → finally aclose_run
 | `TOOL_POLICY_FILE` | 工具策略 YAML，默认 `config/tool_policy.yaml` |
 | `TOOL_MINIO_ARTIFACTS` | 超长工具全文是否镜像 MinIO，默认 true |
 | `MODEL_REQUEST_TIMEOUT_SECONDS` | 模型请求超时，默认 120s |
-| `MODEL_MAX_RETRIES` | Agent 侧客户端重试；默认 0，交给 LiteLLM |
 | `RUN_BUDGET_MAX_TOKENS` / `RUN_BUDGET_MAX_SECONDS` | 单 run token/时间预算；0 不限制 |
 | `RUN_BUDGET_MAX_OUTPUT_TOKENS` | 预算预检查预留输出，默认 4096 |
 | `CONTEXT_WINDOW_TOKENS` | 模型窗口回退值，默认 128000 |
@@ -393,5 +392,6 @@ RUN_EVENTS_POSTGRES_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor \
 - [多账号 / 多租户上线改造清单](multi-account-hardening.md)
 - [上线前待改动项 Backlog](prelaunch-backlog.md)（4.2.5 鉴权/多租户、4.2.7 观测/评测）
 - [章节 4 优化项复核（2026-10-22）](section4-audit-2026-10-22.md)
+- [配置分工：Agent vs LiteLLM](config-split.md)
 
 上线前至少完成 P0-1 ~ P0-6，并通过双用户越权 E2E；4.2.7 指标与 golden 回归通过。

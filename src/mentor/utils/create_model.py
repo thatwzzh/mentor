@@ -19,9 +19,9 @@ def create_model(model_config: AgentModelConfig | None = None):
         "model_provider": "openai_reasoning",
         # enable_thinking 是部分 OpenAI 兼容服务（如百炼）的扩展字段。
         "extra_body": {"enable_thinking": model_config.thinking},
-        # LiteLLM 负责 provider 重试/fallback；Agent 侧默认不重复重试。
+        # LiteLLM 负责 provider 重试/fallback；Agent 侧固定不重试，避免放大。
         "request_timeout": model_settings.request_timeout_seconds,
-        "max_retries": model_settings.max_retries,
+        "max_retries": 0,
     }
     if model_config.temperature is not None:
         config["temperature"] = model_config.temperature

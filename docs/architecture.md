@@ -15,6 +15,7 @@
 | 工具 | `ToolSpec` + `ToolRegistry` + `ToolExecutor`；所有工具统一限时/截断/错误分类；MCP 默认 deferred |
 | 会话 | `run_events` 事件表 + `run_projection`；checkpoint 只留最近 10 轮 + 历史摘要 + 产物列表；`GET /runs/{id}/summary` 投影 |
 | 策略 | `ToolPolicy` + `ToolPolicyMiddleware`；`approval_events` 审计；prompt 中断、deny 不执行、单 run 上限 |
+| 上下文 | `TokenMeterMiddleware` + 显式 `SummarizationMiddleware`；工具头 4KB/尾 1KB，全文 MinIO；`compact_conversation` 手动压缩 |
 
 ## 1. 一句话定位
 
@@ -179,6 +180,29 @@ GET /runs/{run_id}/events               # SSE（Last-Event-ID 重连）
 - Postgres 写失败时落 `RUN_EVENTS_OUTBOX_DIR`，用 `mentor events replay` 重放。
 - 前端 SSE/卡片验证待前端阶段完成。
 
+### 4.2.3 上下文与 Token 治理
+
+```text
+TokenMeterMiddleware
+  → estimate_tokens(messages)（调用前）
+  → AIMessage.usage_metadata（调用后）
+  → usage 事件（estimated/input/output/total）
+ToolExecutor 超长输出
+  → 头 4KB + 省略标记 + 尾 1KB
+  → artifact:// 本地引用 + minio_ref 全文镜像
+SummarizationMiddleware（显式 trigger/keep）
+  → compact_conversation 工具（/compact）
+  → compression 事件
+```
+
+要点：
+
+- trigger 按模型 profile 最大输入 token × `CONTEXT_TRIGGER_RATIO`；profile 缺失用 `CONTEXT_WINDOW_TOKENS`。
+- `CONTEXT_AUTO_COMPACT=false` 时把自动 trigger 抬到窗口外，只保留手动 compact。
+- `usage` 事件优先于 `model_response` 汇总 token；`/runs/{id}/usage` 可查。
+- 工具全文本地 artifact 可读，MinIO 只做持久化镜像；`minio_ref` 供审计/恢复。
+- 摘要模型调用本身暂未计入 usage；`/compact` 命令入口在前端。
+
 ### 4.3 模型链路：Agent → LiteLLM → 模型提供方
 
 ```
@@ -313,6 +337,9 @@ docker compose up -d shared-minio
 | `RUN_EVENTS_MAX_TOOL_CHARS` | 保留轮次中的工具输出上限，默认 500 |
 | `RUN_EVENTS_OUTBOX_DIR` | Postgres 写入失败时的 JSONL outbox，默认 `/tmp/mentor-run-events-outbox` |
 | `TOOL_POLICY_FILE` | 工具策略 YAML，默认 `config/tool_policy.yaml` |
+| `TOOL_MINIO_ARTIFACTS` | 超长工具全文镜像 MinIO，默认 true |
+| `CONTEXT_WINDOW_TOKENS` / `CONTEXT_TRIGGER_RATIO` / `CONTEXT_KEEP_MESSAGES` | 压缩 trigger/keep |
+| `CONTEXT_TRIM_TOKENS_TO_SUMMARIZE` / `CONTEXT_AUTO_COMPACT` | 摘要输入上限与自动压缩开关 |
 | `TOOL_POLICY_ENABLED` | 策略总开关；false 回退 allow |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 连接配置 |
 | `LANGFUSE_TRACE_RETENTION_DAYS` | Trace 保留天数，供清理任务使用 |
@@ -377,6 +404,9 @@ docker compose up -d shared-minio
 - `run_id` 优先取 LangGraph config；缺失时回退 thread_id，多 run 共用 thread 时事件会合并。
 - 旧前端读取 state `turn_summary` 的，需要迁移到 `RunSummary`。
 - 策略正则匹配参数 JSON，不是命令语义；复杂命令需要更精确的规则。
+- TokenMeter 用 usage_metadata 回填成本，不实现自定义 tokenizer；摘要调用未计量。
+- 工具全文 MinIO 镜像是尽力而为，失败仍保留本地 artifact。
+- `/compact` 需要前端映射到 compact_conversation。
 - 审批中断依赖 checkpointer/resume；前端审批卡未验证。
 - 多账号/多租户上线前必须完成真实鉴权、Assistants owner 过滤、MinIO 凭据隔离、LiteLLM 配额等改造；完整清单见 [multi-account-hardening.md](multi-account-hardening.md)；4.2.5/4.2.7 的上线前待办见 [prelaunch-backlog.md](prelaunch-backlog.md)。
 

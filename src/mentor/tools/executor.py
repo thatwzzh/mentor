@@ -15,7 +15,12 @@ from langchain_core.tools import ToolException
 from langgraph.errors import GraphInterrupt
 from pydantic import BaseModel, ValidationError
 
-from mentor.tools.artifacts import ArtifactStore, artifact_store
+from mentor.tools.artifacts import (
+    ArtifactStore,
+    MinioArtifactMirror,
+    artifact_store,
+    minio_artifact_mirror,
+)
 from mentor.tools.specs import ToolSpec
 
 ToolErrorKind = Literal["input", "policy", "timeout", "system"]
@@ -36,6 +41,7 @@ class ToolResult:
     artifacts: list[str] = field(default_factory=list)
     duration_ms: int = 0
     error: str | None = None
+    minio_ref: str | None = None
     message: ToolMessage | Any | None = None
 
     def envelope(self) -> dict[str, Any]:
@@ -45,6 +51,7 @@ class ToolResult:
             "error_kind": self.error_kind,
             "truncated": self.truncated,
             "artifacts": self.artifacts,
+            "minio_ref": self.minio_ref,
             "duration_ms": self.duration_ms,
         }
 
@@ -63,10 +70,15 @@ def _serialize(value: Any) -> str:
 class ToolExecutor:
     """所有工具执行的唯一入口。"""
 
-    def __init__(self, artifacts: ArtifactStore | None = None) -> None:
+    def __init__(
+        self,
+        artifacts: ArtifactStore | None = None,
+        minio: MinioArtifactMirror | None = None,
+    ) -> None:
         self.artifacts = artifacts or artifact_store
+        self.minio = minio or minio_artifact_mirror
 
-    def _result(
+    async def _result(
         self,
         *,
         text: str,
@@ -81,16 +93,22 @@ class ToolExecutor:
             tool_name=spec.name,
             call_id=tool_call_id,
         )
+        minio_ref = None
+        if artifacts:
+            minio_ref = await self.minio.mirror(
+                text, tool_name=spec.name, call_id=tool_call_id
+            )
         result = ToolResult(
             ok=True,
             data=preview,
             truncated=bool(artifacts),
             artifacts=artifacts,
+            minio_ref=minio_ref,
             duration_ms=int((time.monotonic() - started) * 1000),
-            message=message.model_copy(update={"content": preview, "artifact": None}),
         )
-        updated = message.model_copy(update={"content": preview, "artifact": result.envelope()})
-        result.message = updated
+        result.message = message.model_copy(
+            update={"content": preview, "artifact": result.envelope()}
+        )
         return result
 
     def _failure(
@@ -180,7 +198,7 @@ class ToolExecutor:
                     }
                 )
                 return failure
-            return self._result(
+            return await self._result(
                 text=text,
                 spec=spec,
                 tool_call_id=tool_call_id,
@@ -226,10 +244,16 @@ class ToolExecutor:
             tool_name=spec.name,
             call_id="deferred",
         )
+        minio_ref = None
+        if artifacts:
+            minio_ref = await self.minio.mirror(
+                text, tool_name=spec.name, call_id="deferred"
+            )
         return ToolResult(
             ok=True,
             data=preview,
             truncated=bool(artifacts),
             artifacts=artifacts,
+            minio_ref=minio_ref,
             duration_ms=int((time.monotonic() - started) * 1000),
         )

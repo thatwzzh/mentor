@@ -304,6 +304,11 @@ def build_summary(events: list[RunEvent]) -> RunSummary:
                 artifacts.append(ref)
         if event.kind == "compression":
             compression.append(event.data)
+    # TokenMeter 的 usage 事件优先；旧数据回落到 model_response。
+    usage_events = [event for event in events if event.kind == "usage"]
+    if not usage_events:
+        usage_events = [event for event in events if event.kind == "model_response"]
+    for event in usage_events:
         usage = event.data.get("token_usage")
         if isinstance(usage, dict):
             for key in token_usage:

@@ -65,6 +65,8 @@ src/mentor/
 │  ├─ sandbox_lifecycle.py    # after_agent 关闭当前 run 的沙箱连接
 │  ├─ tool_executor.py        # 工具调用 + 副作用前后事件
 │  ├─ run_events.py           # run/turn/model 生命周期事件
+│  ├─ token_meter.py          # 调用前后 token 计量
+│  ├─ context.py              # 显式压缩 trigger/keep
 │  └─ run_projection.py       # 写消息/压缩事件 + 修剪 checkpoint
 ├─ policy/
 │  └─ tool_policy.py          # YAML 规则 → allow/prompt/deny
@@ -184,6 +186,30 @@ ToolPolicyMiddleware（最外层）
 - `TOOL_POLICY_ENABLED=false` 可整体回退到 allow；规则开关关闭后行为可回退。
 - `interrupt` 需要 checkpointer + resume；前端审批卡待前端阶段验证。
 
+### 4.4 上下文与 Token 治理
+
+```text
+TokenMeterMiddleware（模型调用外层）
+  → 调用前 estimate_tokens
+  → 调用后读取 usage_metadata
+  → 写 usage 事件（estimated/input/output/total）
+ToolExecutor 超长输出
+  → 头 4KB + 省略标记 + 尾 1KB
+  → 本地 artifact:// 可读引用
+  → MinIO 全文镜像（minio_ref）
+SummarizationMiddleware（显式配置）
+  → trigger = 模型窗口 × CONTEXT_TRIGGER_RATIO
+  → keep = CONTEXT_KEEP_MESSAGES
+  → compact_conversation 工具（/compact 触发）
+  → compression 事件
+```
+
+- `CONTEXT_WINDOW_TOKENS` 是模型 profile 缺失时的回退；有 `max_input_tokens` 时优先用 profile。
+- `CONTEXT_AUTO_COMPACT=false` 时自动触发阈值抬高，只保留 `compact_conversation` 手动压缩。
+- 工具输出超过阈值时保留头 4KB + 尾 1KB；全文写本地 artifact，并镜像 MinIO，envelope 带 `minio_ref`。
+- `/compact` 由前端映射到 `compact_conversation` 工具；压缩结果写 `compression` 事件。
+- Token 成本通过 `GET /runs/{run_id}/usage` 查询；usage 事件优先于 model_response 汇总。
+
 ## 5. 配置分层与灰度
 
 ```text
@@ -268,6 +294,12 @@ deploy 自建 backend → finally aclose_run
 | `RUN_EVENTS_SUMMARY_MAX_CHARS` | 历史摘要上限，默认 4000 |
 | `RUN_EVENTS_OUTBOX_DIR` | Postgres 写入失败时的 JSONL outbox，默认 `/tmp/mentor-run-events-outbox` |
 | `TOOL_POLICY_FILE` | 工具策略 YAML，默认 `config/tool_policy.yaml` |
+| `TOOL_MINIO_ARTIFACTS` | 超长工具全文是否镜像 MinIO，默认 true |
+| `CONTEXT_WINDOW_TOKENS` | 模型窗口回退值，默认 128000 |
+| `CONTEXT_TRIGGER_RATIO` | 自动压缩触发比例，默认 0.8 |
+| `CONTEXT_KEEP_MESSAGES` | 压缩后保留消息数，默认 20 |
+| `CONTEXT_TRIM_TOKENS_TO_SUMMARIZE` | 摘要输入 token 上限，默认 4000 |
+| `CONTEXT_AUTO_COMPACT` | 是否自动压缩；false 仅手动 /compact |
 | `TOOL_POLICY_ENABLED` | 策略总开关，设为 false 回退 allow |
 
 ## 8. 测试与发布
@@ -312,6 +344,8 @@ RUN_EVENTS_POSTGRES_DSN=postgresql://mentor:mentor@127.0.0.1:5433/mentor \
 - `GET /runs/{id}/summary` 的 run_id 优先取 LangGraph config；缺失时回退 thread_id，多个 run 共用 thread 时会合并事件。
 - 旧前端若读取 state 的 `turn_summary`，需要迁移到 `/runs/{id}/summary` 的 `RunSummary`。
 - 策略 `pattern` 匹配的是参数 JSON 文本，不是语义解析；复杂命令需配合更精确的规则。
+- TokenMeter 用 usage_metadata 回填成本，不实现自定义 tokenizer；摘要模型调用本身暂未计入 usage。
+- `/compact` 需要前端把命令映射到 `compact_conversation`；命令入口未在本仓库实现。
 - 审批中断依赖 LangGraph checkpointer/resume；无 checkpointer 的本地调用不会产生可恢复审批。
 
 ## 10. 上线前：多账号 / 多租户

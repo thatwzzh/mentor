@@ -34,6 +34,11 @@ from mentor.config.nacos.nacos_agent_spec import get_agent_spec
 from mentor.config.nacos.nacos_schemas import AgentSpec, MCPServerConfig
 from mentor.config.nacos.nacos_skill import ensure_skills, skill_path
 from mentor.middlewares.sandbox_lifecycle import sandbox_lifecycle_middleware
+from mentor.middlewares.context import (
+    build_compact_tool_middleware,
+    build_summarization_middleware,
+)
+from mentor.middlewares.token_meter import TokenMeterMiddleware
 from mentor.middlewares.tool_executor import ToolExecutorMiddleware
 from mentor.middlewares.tool_policy import ToolPolicyMiddleware
 from mentor.tools import ToolBundle, ToolSpec, get_tool_bundle
@@ -241,6 +246,13 @@ class AgentFactory(ABC):
     ) -> Runnable:
         backend = self.get_backend()
         middleware = list(self.get_middlewares())
+        # 显式压缩配置；同名中间件会替换 DeepAgents 默认 SummarizationMiddleware。
+        # 测试/自定义工厂可能传 model=None，此时跳过模型相关中间件。
+        if model is not None:
+            middleware.append(TokenMeterMiddleware())
+            summarization = build_summarization_middleware(model, backend)
+            middleware.append(summarization)
+            middleware.append(build_compact_tool_middleware(summarization))
         # 策略在工具执行器外层：deny/prompt 不会触发工具副作用。
         middleware.append(ToolPolicyMiddleware(tool_registry))
         middleware.append(ToolExecutorMiddleware(tool_registry))

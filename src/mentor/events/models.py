@@ -15,6 +15,7 @@ RunEventKind = Literal[
     "approval",
     "artifact",
     "message",
+    "usage",
     "compression",
     "run_finished",
     "summary",

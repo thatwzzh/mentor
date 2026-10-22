@@ -92,6 +92,7 @@ class ToolExecutorMiddleware(AgentMiddleware):
                         "error_kind": envelope.get("error_kind"),
                         "truncated": envelope.get("truncated"),
                         "artifacts": envelope.get("artifacts", []),
+                        "minio_ref": envelope.get("minio_ref"),
                         "duration_ms": envelope.get("duration_ms"),
                     },
                 )

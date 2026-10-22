@@ -55,6 +55,10 @@ Postgres 写失败会落 `RUN_EVENTS_OUTBOX_DIR`，可用 `mentor events replay`
 LangGraph interrupt 暂停，审批写 `approval_events`，`GET /runs/{run_id}/approvals` 可查。
 `TOOL_POLICY_ENABLED=false` 可整体回退。
 
+上下文：`TokenMeterMiddleware` 写 usage 事件；超长工具输出保留头 4KB + 尾 1KB，全文本地
+artifact + MinIO 镜像；压缩使用显式 `CONTEXT_*` trigger/keep，`compact_conversation`
+工具供 `/compact` 调用。
+
 ## 服务说明
 
 > 以下账号密码均为本地开发默认值，请勿用于生产环境。

@@ -4,6 +4,7 @@
 保证崩溃时事件表里至少能定位到已开始的 run、已开始的模型调用和工具调用。
 """
 
+import hashlib
 import logging
 from typing import Any
 
@@ -155,6 +156,27 @@ class RunEventsMiddleware(AgentMiddleware):
     async def aafter_agent(self, state: Any, runtime: Any) -> None:
         run_id, thread_id, user_id = runtime_ids()
         messages = list(state.get("messages", []) or [])
+        summarization = state.get("_summarization_event")
+        if isinstance(summarization, dict):
+            summary_message = summarization.get("summary_message")
+            summary = _text(getattr(summary_message, "content", "") or "")
+            summary_hash = hashlib.sha256(summary.encode("utf-8")).hexdigest()[:16]
+            self._write(
+                RunEvent(
+                    run_id=run_id,
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    event_key=f"compression:summarization:{summary_hash}",
+                    kind="compression",
+                    role="event",
+                    data={
+                        "source": "summarization",
+                        "cutoff_index": summarization.get("cutoff_index"),
+                        "summary_hash": summary_hash,
+                        "summary": summary[:2000],
+                    },
+                )
+            )
         self._write(
             RunEvent(
                 run_id=run_id,

@@ -16,7 +16,7 @@ from mentor.agents.agent_factory import AgentFactory
 from mentor.config.nacos.nacos_schemas import MCPServerConfig
 from mentor.middlewares.tool_executor import ToolExecutorMiddleware
 from mentor.tools import ToolBundle, get_tool_bundle
-from mentor.tools.artifacts import ArtifactStore
+from mentor.tools.artifacts import ArtifactStore, MinioArtifactMirror
 from mentor.tools.executor import ToolExecutor
 from mentor.tools.specs import ToolRegistry, ToolSpec
 
@@ -244,3 +244,32 @@ def test_mcp_tools_apply_auth_timeout_allowed_and_deferred(monkeypatch):
     }
     assert captured["connections"]["srv"]["timeout"] == 7
     assert captured["prefix"] is True
+
+
+def test_large_tool_output_keeps_head_and_tail():
+    text = "HEAD" + ("x" * 20_000) + "TAIL"
+
+    @tool
+    async def large_tool() -> str:
+        """返回超长文本。"""
+        return text
+
+    with tempfile.TemporaryDirectory() as tmp:
+        executor = ToolExecutor(
+            ArtifactStore(tmp), minio=MinioArtifactMirror(enabled=False)
+        )
+        spec = ToolSpec(
+            name="large_tool",
+            tool=large_tool,
+            risk="read",
+            timeout_s=10,
+            max_output_chars=8_000,
+        )
+        result = asyncio.run(executor.execute_tool(spec, {}))
+        assert result.truncated
+        assert result.data is not None
+        assert "HEAD" in result.data
+        assert "TAIL" in result.data
+        assert "artifact://" in result.data
+        assert result.minio_ref is None
+        assert executor.artifacts.read(result.artifacts[0], limit=len(text)) == text

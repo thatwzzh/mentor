@@ -32,6 +32,8 @@
 - [ ] `pending_tools`：展示未完成工具；崩溃/断线后提示“最后完成工具”
 - [ ] 审批交互：`tool_approval` interrupt 的 resume；审批卡展示 tool/args/reason，调用 `/approvals` 对账。
 - [ ] 策略 deny/allow 的错误卡：区分 `error_kind=policy` 与工具失败。
+- [ ] `/compact` 命令映射到 `compact_conversation` 工具；展示 compression 事件与压缩前后 token。
+- [ ] `usage` 事件与 `/runs/{id}/usage` 的成本卡。
 - [ ] 失败/重连测试：kill 进程、断网、重复 seq、空 run、404。
 - [ ] 前端 E2E：工具卡/审批卡/产物卡与 `run_events` 同源，不另建一套消息口径。
 

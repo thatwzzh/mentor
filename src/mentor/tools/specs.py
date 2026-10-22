@@ -46,6 +46,7 @@ _DEEPAGENT_DEFAULTS: dict[str, tuple[ToolRisk, float]] = {
     "edit_file": ("write", 30),
     "execute": ("destructive", 90),
     "task": ("external", 120),
+    "compact_conversation": ("read", 120),
 }
 
 _APP_SPECS: dict[str, ToolSpec] = {}

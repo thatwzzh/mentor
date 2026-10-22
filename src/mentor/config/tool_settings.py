@@ -10,6 +10,8 @@ class ToolSettings(BaseSettingsWithEnv):
     artifact_dir: str = "/tmp/mentor-tool-artifacts"
     # 单个工具输出默认上限；ToolSpec 可逐工具覆盖。
     max_output_chars: int = Field(default=8_000, gt=0)
+    # 是否把被截断的工具全文镜像到 MinIO。
+    minio_artifacts: bool = True
 
     model_config = {"env_prefix": "TOOL_"}
 

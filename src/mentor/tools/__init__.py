@@ -11,7 +11,6 @@ from dataclasses import dataclass, field
 from langchain_core.tools import BaseTool, StructuredTool
 
 from mentor.tools import artifact as _artifact  # noqa: F401  触发 read_artifact 注册
-from mentor.tools import memory as _memory  # noqa: F401  触发 memory 工具注册
 from mentor.tools.ask_user_question import ask_user_question
 from mentor.tools.deploy import deploy
 from mentor.tools.executor import ToolExecutor

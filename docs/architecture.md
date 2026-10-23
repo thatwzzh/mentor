@@ -19,7 +19,6 @@
 | 上下文 | `TokenMeterMiddleware` + 显式 `SummarizationMiddleware`；工具头 4KB/尾 1KB，全文 MinIO；`compact_conversation` 手动压缩 |
 | 韧性/预算 | LiteLLM 负责 provider 重试/fallback/熔断；Agent 侧 `BudgetMiddleware` + `RunBudget` 管 token/deadline；TokenMeter 记录 served_model |
 | 子代理 | `spawn_subagent` 后台 asyncio 任务；`max_depth=1`、超时、取消、只读策略；完成写 subagent 事件 |
-| 记忆 | `agent_memories`（tenant/user） + `memory_*` 工具 + `MemoryMiddleware` 注入预算 |
 | 沙箱档位 | `AgentModelConfig.profile` → `sandbox_profiles`；资源/超时/网络/步数/工具/输出护栏 |
 
 ## 1. 一句话定位
@@ -245,20 +244,18 @@ Agent：MODEL_REQUEST_TIMEOUT_SECONDS + max_retries 固定 0
 - 当前完成事件不自动 resume 父图；前端/调用方用 `check_subagent` 拉取结果或开下一轮。
 - job 状态在进程内，重启会丢未完成任务；不做消息板/角色市场/跨进程 ACP。
 
-### 4.2.6 记忆分层
+### 4.2.6 记忆分层（已移除，待替换）
+
+原实现（`agent_memories` 表 + `memory_*` 工具 + `MemoryMiddleware` + pgvector 召回）已整体删除，准备换另一套实现。当前代码库中没有长记忆：
 
 ```text
-短记忆：checkpoint / run_events / history_summary
-长记忆：Postgres agent_memories
-  → memory_search / memory_write / memory_forget
-  → MemoryMiddleware 注入 system prompt（token 预算）
+短记忆：checkpoint / run_events / history_summary（保留）
+长记忆：无（memory/、middlewares/memory.py、tools/memory.py、config/memory_settings.py 已删）
 ```
 
-- 长记忆按 `tenant_id + user_id` 隔离；同 key 新值 supersede。
-- 过期不召回；forget 物理删除。
-- 检索是关键词 + confidence + recency + pinned；pgvector/embedding 预留未接。
-- 显式写入为主；异步抽取/冲突消解/敏感信息确认未做。
-- `MEMORY_TENANT` 当前为全局默认，真实多租户应取 auth claim。
+- 接入替代表现时，需要重新补：写入工具、检索/注入中间件、租户隔离、过期与冲突处理。
+- 原实现的租户约定（auth claim `tenant_id`，mock 用户已带该字段）仍保留在 `utils/mock_user.py`，可直接复用。
+- 本地 `mentor-postgres` 若由上一版镜像创建过，库里可能还留 `agent_memories` 表和 `vector` 扩展；换回官方 `postgres:17` 前先执行 `DROP TABLE IF EXISTS agent_memories; DROP EXTENSION IF EXISTS vector;`。
 
 ### 4.2.7 沙箱能力档位
 
@@ -415,7 +412,6 @@ docker compose up -d shared-minio
 | `MODEL_REQUEST_TIMEOUT_SECONDS` | 客户端超时保护；需 ≥ LiteLLM timeout |
 | `RUN_BUDGET_MAX_TOKENS` / `RUN_BUDGET_MAX_SECONDS` / `RUN_BUDGET_MAX_OUTPUT_TOKENS` | 单 run 预算 |
 | `SUBAGENT_MAX_DEPTH` / `SUBAGENT_TIMEOUT_SECONDS` | 子代理深度与超时 |
-| `MEMORY_ENABLED` / `MEMORY_TENANT` / `MEMORY_MAX_INJECT_TOKENS` / `MEMORY_SEARCH_LIMIT` / `MEMORY_MIN_CONFIDENCE` | 长记忆开关、租户、注入与检索 |
 | Nacos `sandbox_profiles` + `model.profile` | 沙箱资源、超时、网络与步数/工具限额 |
 | `TOOL_POLICY_ENABLED` | 策略总开关；false 回退 allow |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Langfuse 连接配置 |

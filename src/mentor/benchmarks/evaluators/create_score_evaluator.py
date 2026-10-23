@@ -1,6 +1,7 @@
 """评测器工厂：从 Langfuse Prompt 读取评分提示词，输出 0–1 分数与理由。"""
 
 from langfuse import Evaluation, get_client
+from mentor.config.nacos.nacos_schemas import AgentModelConfig
 from mentor.utils.create_model import create_model
 from mentor.benchmarks.evaluators.schemas import EvaluationResult
 from langchain.agents import create_agent
@@ -16,7 +17,7 @@ def create_score_evaluator(prompt_name):
         langfuse = get_client()
         prompt = langfuse.get_prompt(prompt_name)
         # 评分模型与展示名都放在 Langfuse Prompt 的 config 里，便于不改代码调评测。
-        model_config = prompt.config.get("model_config", {})
+        model_config = prompt.config.get("model_config") or {}
         eval_name = prompt.config.get("name", "no-name")
         if not output:
             return Evaluation(
@@ -25,7 +26,11 @@ def create_score_evaluator(prompt_name):
                 comment="没有实际输出",
                 data_type="NUMERIC",
             )
-        model = create_model(**model_config)
+        if not isinstance(model_config, dict):
+            raise ValueError("Prompt config.model_config 必须是对象")
+        # Prompt 的 model_config 与 AgentModelConfig 字段对齐；先校验再传，
+        # 不能展开成关键字参数（create_model 只接受一个配置对象）。
+        model = create_model(AgentModelConfig.model_validate(model_config))
         # 用 ToolStrategy 约束模型输出为 EvaluationResult，避免解析自由文本。
         agent = create_agent(
             model=model, response_format=ToolStrategy(EvaluationResult)

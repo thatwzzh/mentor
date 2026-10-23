@@ -50,24 +50,32 @@ src/mentor/
 │  ├─ agent_factory.py        # Nacos 规格 → 模型/工具/子 Agent/图；spec_hash 缓存
 │  ├─ agent_cache.py          # (agent, spec_hash) LRU；每 Agent 默认 3 个版本
 │  ├─ subagent_registry.py    # @register_subagent 注册表
+│  ├─ async_subagent.py       # 后台子代理：spawn / check / cancel 的进程内实现
+│  ├─ async_subagent_prompt.py  # 异步子代理使用规则（注入 system prompt）
 │  ├─ main.py                 # 主 Agent：MainAgentState + run_projection
 │  └─ web.py                  # web_agent 子 Agent
 ├─ backends/
 │  └─ sandbox_backend.py      # 文件/命令/删除 → OpenSandbox；run 级连接缓存
+├─ budget/
+│  └─ run_budget.py           # 单 run token/时间预算与 ContextVar
 ├─ config/
 │  ├─ layers.py               # 四层配置合并 + AgentSpecOverride
 │  ├─ errors.py               # ConfigNotFound / ConfigUnavailable
 │  ├─ doctor.py               # 启动前配置体检
+│  ├─ sandbox_profiles.py     # 按 model.profile 解析沙箱档位
 │  ├─ nacos/                  # AgentSpec / Prompt / MCP / Skill / 通用配置
 │  └─ *_settings.py           # pydantic-settings（.env）
 ├─ middlewares/
-│  ├─ turn_summary.py         # 前端可见消息摘要
-│  ├─ sandbox_lifecycle.py    # after_agent 关闭当前 run 的沙箱连接
-│  ├─ tool_executor.py        # 工具调用 + 副作用前后事件
 │  ├─ run_events.py           # run/turn/model 生命周期事件
+│  ├─ run_projection.py       # 写消息/压缩事件 + 修剪 checkpoint
+│  ├─ budget.py               # 模型调用前后的预算检查与回填
 │  ├─ token_meter.py          # 调用前后 token 计量
-│  ├─ context.py              # 显式压缩 trigger/keep
-│  └─ run_projection.py       # 写消息/压缩事件 + 修剪 checkpoint
+│  ├─ context.py              # 显式压缩 trigger/keep + compact 工具
+│  ├─ precompaction.py        # 回答后异步预压缩，下一轮注入
+│  ├─ sandbox_profile.py      # 步数/工具/并发/输出护栏
+│  ├─ tool_policy.py          # allow/prompt/deny 与审批审计
+│  ├─ tool_executor.py        # 工具调用 + 副作用前后事件
+│  └─ sandbox_lifecycle.py    # after_agent 关闭当前 run 的沙箱连接
 ├─ policy/
 │  └─ tool_policy.py          # YAML 规则 → allow/prompt/deny
 ├─ events/
@@ -76,7 +84,10 @@ src/mentor/
 │  ├─ store.py                # Postgres 事件表（测试用 InMemory）
 │  ├─ projection.py           # 消息→事件、checkpoint 修剪
 │  ├─ writer.py               # 写事件 + outbox 兜底
-│  └─ outbox.py               # 失败事件落盘与重放
+│  ├─ outbox.py               # 失败事件落盘与重放
+│  ├─ approvals.py            # approval_events 审批审计表
+│  └─ context_summary.py      # 预压缩摘要的占位与领取
+├─ golden/                    # 脚本化 golden session：record / replay
 ├─ security/auth.py           # LangGraph 鉴权（当前为 MOCK_USER）
 ├─ tools/
 │  ├─ specs.py                # ToolSpec / @register_tool / 风险与暴露级别

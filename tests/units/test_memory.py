@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any, cast
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from mentor.config.memory_settings import memory_settings
 from mentor.memory.models import MemoryRecord
@@ -135,3 +135,96 @@ def test_main_agent_gets_memory_tools():
     )
     names = {tool.name for tool in bundle.direct_tools}
     assert {"memory_search", "memory_write", "memory_forget"} <= names
+
+
+def test_tenant_claim_preferred_over_fallback(monkeypatch):
+    from mentor.utils import shared
+
+    monkeypatch.setattr(
+        shared,
+        "get_config",
+        lambda: {
+            "configurable": {
+                "langgraph_auth_user": {"tenant_id": "tenant-claim"}
+            }
+        },
+    )
+    assert shared.get_tenant_id() == "tenant-claim"
+
+
+def test_memory_cleanup_removes_expired_and_old_superseded():
+    store = InMemoryMemoryStore()
+    store.write(
+        _record(
+            "user-a",
+            "expired",
+            "过期",
+            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+    )
+    old = _record("user-a", "old", "旧值")
+    old.created_at = datetime.now(timezone.utc) - timedelta(days=60)
+    store.write(old)
+    store.write(_record("user-a", "old", "新值"))
+    assert store.cleanup_expired(retention_days=30) == 2
+    assert store.search(
+        tenant_id="tenant-a", user_id="user-a", query="新值"
+    )[0].content == "新值"
+
+
+def test_async_memory_extraction_and_sensitive_skip(monkeypatch):
+    from mentor.memory.extraction import MemoryExtractor
+
+    class FakeModel:
+        async def ainvoke(self, messages):
+            return AIMessage(content=(
+                '[{"kind":"preference","key":"editor","content":"用户偏好 Vim","confidence":0.9},'
+                '{"kind":"fact","key":"secret","content":"api_key=sk-1234567890","confidence":0.9}]'
+            ))
+
+    store = InMemoryMemoryStore()
+    extractor = MemoryExtractor(FakeModel(), store=store)
+    monkeypatch.setattr(
+        "mentor.memory.extraction.runtime_ids",
+        lambda: ("run-1", "thread-1", "user-a"),
+    )
+    monkeypatch.setattr(
+        "mentor.memory.extraction.get_tenant_id", lambda: "tenant-a"
+    )
+    messages = [
+        HumanMessage(content="以后都用 Vim，另外 api_key=sk-1234567890"),
+        AIMessage(content="好的"),
+    ]
+    assert asyncio.run(extractor.extract(messages)) == 1
+    records = store.search(
+        tenant_id="tenant-a", user_id="user-a", query="Vim"
+    )
+    assert records[0].content == "用户偏好 Vim"
+    assert all("sk-" not in item.content for item in store._items)
+
+
+def test_inmemory_vector_recall_without_keyword_overlap():
+    store = InMemoryMemoryStore()
+    store.write(
+        _record(
+            "user-a",
+            "editor",
+            "用户偏好 Vim",
+            embedding=[1.0, 0.0, 0.0],
+        )
+    )
+    results = store.search(
+        tenant_id="tenant-a",
+        user_id="user-a",
+        query="完全不同的词",
+        query_embedding=[0.98, 0.1, 0.0],
+    )
+    assert results and results[0].key == "editor"
+
+
+def test_memory_embedder_is_disabled_without_model():
+    from mentor.memory.embedding import MemoryEmbedder
+
+    embedder = MemoryEmbedder()
+    assert embedder.enabled is False
+    assert asyncio.run(embedder.embed("anything")) is None

@@ -8,7 +8,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from mentor.config.memory_settings import memory_settings
 from mentor.events.context import runtime_ids
+from mentor.utils.shared import get_tenant_id
 from mentor.events.projection import estimate_tokens
+from mentor.memory.embedding import get_memory_embedder
 from mentor.memory.models import MemoryRecord
 from mentor.memory.store import MemoryStoreProtocol, get_memory_store
 
@@ -17,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def _identity() -> tuple[str, str]:
     _, _, user_id = runtime_ids()
-    return memory_settings.tenant, user_id
+    return get_tenant_id(), user_id
 
 
 def _format_block(records: list[MemoryRecord], max_tokens: int) -> str:
@@ -68,11 +70,13 @@ class MemoryMiddleware(AgentMiddleware):
             return await handler(request)
         tenant_id, user_id = _identity()
         try:
+            embedding = await get_memory_embedder().embed(query)
             records = store.search(
                 tenant_id=tenant_id,
                 user_id=user_id,
                 query=query,
                 limit=memory_settings.search_limit,
+                query_embedding=embedding,
             )
         except Exception as exc:
             logger.warning("长记忆检索失败: %s", exc)

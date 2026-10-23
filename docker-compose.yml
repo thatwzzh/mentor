@@ -148,8 +148,10 @@ services:
       - langfuse_postgres_data:/var/lib/postgresql/data
 
   # mentor 会话投影事件库；与 Langfuse/LiteLLM 的 Postgres 隔离，避免互相影响。
+  # 用 pgvector 镜像而非官方 postgres:17，是为了记忆分层的向量召回（CREATE EXTENSION vector）。
+  # 不用向量检索时不建扩展，行为与官方镜像一致。
   mentor-postgres:
-    image: docker.io/postgres:17
+    image: docker.io/pgvector/pgvector:pg17
     restart: always
     ports:
       - "127.0.0.1:5433:5432"

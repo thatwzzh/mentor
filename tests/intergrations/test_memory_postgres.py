@@ -52,3 +52,34 @@ def test_memory_store_roundtrip_and_supersede():
     finally:
         store.clear(tenant_id="tenant-a", user_id=user)
         store.close()
+
+
+def test_memory_store_vector_recall():
+    store = MemoryStore(DSN)
+    user = f"user-{uuid4().hex}"
+    embedding = [0.0] * 1536
+    embedding[0] = 1.0
+    query_embedding = [0.0] * 1536
+    query_embedding[0] = 0.99
+    query_embedding[1] = 0.01
+    try:
+        assert store.vector_available
+        store.write(
+            MemoryRecord(
+                tenant_id="tenant-a",
+                user_id=user,
+                key="semantic",
+                content="语义相近但关键词不同",
+                embedding=embedding,
+            )
+        )
+        found = store.search(
+            tenant_id="tenant-a",
+            user_id=user,
+            query="完全无关的查询词",
+            query_embedding=query_embedding,
+        )
+        assert found and found[0].key == "semantic"
+    finally:
+        store.clear(tenant_id="tenant-a", user_id=user)
+        store.close()

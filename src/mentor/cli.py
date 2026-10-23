@@ -76,6 +76,18 @@ def _cmd_golden_replay(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_memory_cleanup(args: argparse.Namespace) -> int:
+    from mentor.memory.store import get_memory_store
+
+    store = get_memory_store()
+    try:
+        count = store.cleanup_expired(retention_days=args.retention_days)
+    finally:
+        store.close()
+    print(f"DELETED: {count}")
+    return 0
+
+
 def _cmd_golden_record(args: argparse.Namespace) -> int:
     from mentor.golden import load_case, record_case, save_case
 
@@ -122,6 +134,12 @@ def _build_parser() -> argparse.ArgumentParser:
     golden_record.add_argument("--file", required=True, help="golden JSON 路径")
     golden_record.add_argument("--out", help="输出路径；默认覆盖 --file")
     golden_record.set_defaults(func=_cmd_golden_record)
+
+    memory = commands.add_parser("memory")
+    memory_sub = memory.add_subparsers(dest="memory_action", required=True)
+    cleanup = memory_sub.add_parser("cleanup", help="清理过期/旧版本长记忆")
+    cleanup.add_argument("--retention-days", type=int, default=30)
+    cleanup.set_defaults(func=_cmd_memory_cleanup)
     return parser
 
 

@@ -8,6 +8,8 @@ from langchain.tools import tool
 
 from mentor.config.memory_settings import memory_settings
 from mentor.events.context import runtime_ids
+from mentor.utils.shared import get_tenant_id
+from mentor.memory.embedding import get_memory_embedder
 from mentor.memory.models import MemoryKind, MemoryRecord
 from mentor.memory.store import get_memory_store
 from mentor.tools.specs import register_tool
@@ -15,7 +17,7 @@ from mentor.tools.specs import register_tool
 
 def _identity() -> tuple[str, str, str]:
     _, thread_id, user_id = runtime_ids()
-    return memory_settings.tenant, user_id, thread_id
+    return get_tenant_id(), user_id, thread_id
 
 
 @register_tool(risk="read", timeout_s=10)
@@ -23,11 +25,13 @@ def _identity() -> tuple[str, str, str]:
 async def memory_search(query: str, limit: int = 5) -> str:
     """按当前用户/租户检索长记忆；返回 key、kind、content、confidence。"""
     tenant_id, user_id, _ = _identity()
+    embedding = await get_memory_embedder().embed(query)
     records = get_memory_store().search(
         tenant_id=tenant_id,
         user_id=user_id,
         query=query,
         limit=min(max(limit, 1), memory_settings.search_limit),
+        query_embedding=embedding,
     )
     return json.dumps(
         [
@@ -65,8 +69,10 @@ async def memory_write(
         MemoryKind,
         kind if kind in {"preference", "fact", "decision", "todo", "artifact"} else "fact",
     )
+    embedding = await get_memory_embedder().embed(content)
     record = MemoryRecord(
         tenant_id=tenant_id,
+        embedding=embedding,
         user_id=user_id,
         kind=kind_value,
         key=key,

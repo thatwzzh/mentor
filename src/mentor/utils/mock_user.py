@@ -2,9 +2,10 @@
 
 from langgraph_sdk import Auth
 
-MOCK_USER: dict[str, Auth.types.MinimalUserDict] = {
+MOCK_USER: dict[str, dict] = {
     "admin": {
         "identity": "admin",
+        "tenant_id": "tenant-a",
         "display_name": "管理员",
         "permissions": [
             "assistants:create",
@@ -32,6 +33,7 @@ MOCK_USER: dict[str, Auth.types.MinimalUserDict] = {
     },
     "user_1": {
         "identity": "user_id_001",
+        "tenant_id": "tenant-a",
         "display_name": "铁锤",
         "permissions": [
             "assistants:read",
@@ -51,6 +53,7 @@ MOCK_USER: dict[str, Auth.types.MinimalUserDict] = {
     },
     "user_2": {
         "identity": "user_id_002",
+        "tenant_id": "tenant-b",
         "display_name": "丧彪",
         "permissions": [
             "assistants:read",
@@ -70,6 +73,7 @@ MOCK_USER: dict[str, Auth.types.MinimalUserDict] = {
     },
     "test_user": {
         "identity": "test_user",
+        "tenant_id": "tenant-test",
         "display_name": "测试用户",
         "permissions": [
             "assistants:read",

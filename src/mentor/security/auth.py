@@ -1,6 +1,6 @@
 """LangGraph 鉴权：校验 Bearer Token，按资源动作授权，并注入资源 owner。"""
 
-from typing import Never
+from typing import Never, cast
 
 from langgraph_sdk import Auth
 # Demo 用户表：生产环境应替换为用户中心/JWT claims，避免明文 token。
@@ -50,10 +50,13 @@ async def authenticate(
     if user is None:
         _raise_invalid_token()
 
-    return {
-        **user,
-        "permissions": await get_permissions_by_user_id(user["identity"]),
-    }
+    return cast(
+        Auth.types.MinimalUserDict,
+        {
+            **user,
+            "permissions": await get_permissions_by_user_id(user["identity"]),
+        },
+    )
 
 
 @auth.on.store

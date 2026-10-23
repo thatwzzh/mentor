@@ -46,6 +46,7 @@ from mentor.config.sandbox_profiles import (
 )
 from mentor.middlewares.budget import BudgetMiddleware
 from mentor.middlewares.memory import MemoryMiddleware
+from mentor.memory.extraction import MemoryExtractionMiddleware
 from mentor.middlewares.context import (
     build_compact_tool_middleware,
     build_summarization_middleware,
@@ -311,6 +312,7 @@ class AgentFactory(ABC):
                 middleware.append(PendingCompactionMiddleware())
                 middleware.append(PostTurnCompactionMiddleware(manual_summarization))
                 middleware.append(MemoryMiddleware())
+                middleware.append(MemoryExtractionMiddleware(model))
         sandbox_profile = get_current_sandbox_profile()
         if sandbox_profile is not None:
             middleware.append(SandboxProfileGuardMiddleware(sandbox_profile))
